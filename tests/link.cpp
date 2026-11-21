@@ -14,42 +14,75 @@ int main() {
     };
     exchange();
     assert(host.phase==Prepare && guest.phase==Prepare);
-    assert(host.cast(Frost,60,now) && host.phase==Aim);
-    exchange();
-    guest.report(true,true);
-    Packet result=guest.message();
-    exchange();
-    assert(host.battle.hp[0]==93 && host.battle.turn==1 && guest.battle.turn==1);
-    uint32_t hostCue=0, guestCue=0;
-    assert(!host.takeShieldCue(hostCue) && guest.takeShieldCue(guestCue));
-    assert(!guest.takeShieldCue(guestCue));
-    host.receive(result,now);
-    assert(host.battle.turn==1);
-    auto stale=host.message();
-    for(int i=0;i<25;++i) exchange();
-    assert(guest.phase==Prepare && guest.myTurn());
-    guest.receive(stale,now);
-    assert(guest.phase==Prepare);
-    guest.cast(Flame,40,now);
-    exchange();
-    assert(host.phase==Aim && !host.myTurn());
-    host.report(false,false);
+    // Both attacks are legal at the same instant; neither side waits to defend.
+    assert(host.cast(Flame,60,now));
+    assert(guest.cast(Frost,60,now));
+    assert(guest.cast(Ward,0,now));
+    assert(!host.cast(Flame,60,now));
+    auto inputs=guest.message(now);
+    host.receive(inputs,now); host.receive(inputs,now);
     host.tick(now);
-    exchange();
-    assert(guest.battle.effect==Miss && guest.battle.hp[0]==93);
-    assert(!guest.takeShieldCue(guestCue) && !host.takeShieldCue(hostCue));
-    // The host can also be the defender. Its lamp waits for the guest to
-    // acknowledge the settled snapshot, even if the physical hit arrived first.
-    for(int i=0;i<25;++i) exchange();
-    host.cast(Ward,0,now);
-    for(int i=0;i<25;++i) exchange();
-    assert(guest.cast(Flame,50,now));
-    exchange();
-    host.report(true,false); host.tick(now);
-    assert(host.battle.effect==Block && !host.takeShieldCue(hostCue));
-    exchange(); exchange();
-    assert(host.takeShieldCue(hostCue) && !host.takeShieldCue(hostCue));
-    assert(!guest.takeShieldCue(guestCue));
+    auto &arena=host.arena;
+    assert(arena.state.active.actor==0 && arena.state.player[1].layers==1);
+    auto shot=arena.state.active.proof();
+    inputs.duel.input.ready=inputs.duel.input.observed=shot+99;
+    host.receive(inputs,now);
+    assert(arena.state.player[1].layers==1);
+    inputs.duel.input.ready=inputs.duel.input.observed=shot;
+    host.receive(inputs,now); host.receive(inputs,now);
+    assert(arena.state.player[1].layers==0 && arena.state.player[1].blocks==1);
+    assert(arena.state.player[0].hp==93 && arena.state.player[1].hp==100);
+    host.tick(now);
+    assert(arena.state.active.actor==1 && arena.state.active.skill==Frost);
+    auto stale=host.message(now);
+    arena.local.ready=arena.state.active.proof();
+    host.tick(++now);
+    now+=forwardWindowMs; host.tick(now);
+    assert(arena.state.active.reverse && arena.state.active.receiver()==1);
+    // A late forward report, or our own earlier light, cannot complete the reverse probe.
+    arena.local.observed=arena.local.ready;
+    host.tick(now);
+    assert(arena.state.active.id && !arena.state.ready);
+    inputs.duel.input.ready=arena.state.active.proof();
+    host.receive(inputs,now);
+    now+=reverseWindowMs; host.tick(now);
+    assert(!arena.state.active.id && arena.state.player[0].hp==93);
+    guest.receive(host.message(now),now);
+    guest.receive(stale,now);
+    assert(!guest.arena.state.active.id && guest.arena.state.player[0].hp==93);
+    assert(host.cast(Bloom,0,now) && arena.state.player[0].hp==100);
+    assert(!host.cast(Bloom,0,now));
+    for (int n=0;n<3;++n) {
+        now+=cooldownMs[Ward];
+        assert(host.cast(Ward,0,now));
+        assert(!host.cast(Ward,0,now));
+    }
+    now+=cooldownMs[Ward];
+    assert(!host.cast(Ward,0,now) && arena.state.player[0].layers==3);
+    // Lost submissions repeat on every snapshot; a confirmed lethal hit settles once.
+    arena.state.player[1].hp=1;
+    assert(host.cast(Flame,0,now)); host.tick(now);
+    inputs.duel.input.ready=inputs.duel.input.observed=arena.state.active.proof();
+    host.receive(inputs,now); host.tick(now);
+    assert(host.battle.finished() && !host.peerAck && !host.cast(Ward,0,now));
+    guest.receive(host.message(now),now); guest.tick(now);
+    assert(guest.battle.finished());
+    host.receive(guest.message(now),now);
+    assert(host.peerAck);
+    Arena frost;
+    const uint32_t beforeWrap=0xffffff00u;
+    assert(frost.submit(0,Frost,50,beforeWrap));
+    frost.accept(0,frost.local,beforeWrap); frost.tick(beforeWrap);
+    DuelInput defense;
+    frost.tick(beforeWrap+2300u); // No forward READY. Caster receives the distinct return proof.
+    assert(frost.state.active.reverse);
+    defense.ready=defense.observed=frost.state.active.proof();
+    frost.accept(0,defense,beforeWrap+2300u);
+    assert(frost.state.player[1].hp==70);
+    assert(!frost.submit(1,Flame,30,beforeWrap+2700u));
+    assert(frost.submit(1,Ward,30,beforeWrap+2700u));
+    assert(frost.remaining(1,Flame,beforeWrap+3099u)==1);
+    assert(frost.remaining(1,Flame,beforeWrap+3100u)==0);
     Match stranger;
     stranger.join(Duel,1742,999);
     assert(!host.receive(stranger.message(),now));
@@ -69,27 +102,10 @@ int main() {
         exchange();
     }
     assert(guest.battle.finished() && guest.battle.boss==0);
-    host.host(Duel,50); guest.join(Duel,50,22);
-    exchange(); host.cast(Flame,100,now);
-    now+=2400; host.tick(now);
-    assert(host.battle.effect==Miss && host.battle.hp[1]==100);
-    // A delayed READY gives the receiver time for a complete optical window.
-    host.host(Duel,51); guest.join(Duel,51,23); exchange();
-    host.cast(Frost,50,now);
-    now+=1900; guest.receive(host.message(),now); guest.listening(now);
-    host.receive(guest.message(),now); now+=1000; host.tick(now);
-    assert(host.phase==Aim);
-    guest.report(true,false); host.receive(guest.message(),now);
-    assert(host.phase==Feedback && host.battle.effect==Freeze);
-    host.host(Duel,52); guest.join(Duel,52,24); exchange();
-    host.cast(Frost,50,now); guest.receive(host.message(),now); guest.listening(now);
-    host.receive(guest.message(),now); now+=3000;
-    host.receive(guest.message(),now); host.tick(now);
-    assert(host.battle.effect==Miss && host.battle.hp[1]==100);
     auto invalid=guest.message(); invalid.energy=101;
     assert(!host.receive(invalid,now));
     invalid=guest.message(); invalid.room=75;
     assert(!host.receive(invalid,now));
-    puts("PASS room handshake, duel, raid victory, missing ACK, optical timeout and stale packets");
+    puts("PASS simultaneous casts, stacked shields, cooldowns, required optical proof, retries, final ACK and raid");
 }
 

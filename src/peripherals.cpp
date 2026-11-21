@@ -27,6 +27,7 @@ bool Peripherals::initIR() {
     if (rmt_config(&t)!=ESP_OK || rmt_driver_install(tx,0,0)!=ESP_OK) return false;
     rmt_config_t r=RMT_DEFAULT_CONFIG_RX(GPIO_NUM_42,rx);
     r.clk_div=80;
+    r.mem_block_num=2;
     r.rx_config.filter_ticks_thresh=80;
     r.rx_config.idle_threshold=12000;
     if (rmt_config(&r)!=ESP_OK || rmt_driver_install(rx,2048,0)!=ESP_OK
@@ -97,10 +98,50 @@ bool Peripherals::sendIR(uint32_t word) {
     }
     return rmt_write_items(tx,items,34,true)==ESP_OK;
 }
+bool Peripherals::sendShot(uint32_t word) {
+    if (!infrared || receiving) return false;
+    // Retain hardware items until TX completion. Gameplay keeps sampling
+    // buttons and motion while the carrier is active.
+    static rmt_item32_t items[shotParts*shardPulses];
+    static bool started=false;
+    if (started && rmt_wait_tx_done(tx,0)!=ESP_OK) return false;
+    Pulse pulses[shotParts*shardPulses];
+    makeShot(word,pulses);
+    for (unsigned i=0;i<shotParts*shardPulses;++i) {
+        items[i].level0=1; items[i].duration0=pulses[i].mark;
+        items[i].level1=0; items[i].duration1=pulses[i].space;
+    }
+    started=rmt_write_items(tx,items,shotParts*shardPulses,false)==ESP_OK;
+    return started;
+}
+bool Peripherals::readShot(uint32_t word,uint8_t &mask) {
+    if (!receiving) return false;
+    size_t size=0;
+    auto items=static_cast<rmt_item32_t*>(xRingbufferReceive(ring,&size,0));
+    if (!items) return false;
+    uint32_t edges[96], starts[96], elapsed=0;
+    size_t count=0;
+    for (size_t i=0;i<size/sizeof(*items);++i) {
+        for (int half=0;half<2;++half) {
+            unsigned duration=half ? items[i].duration1 : items[i].duration0;
+            unsigned level=half ? items[i].level1 : items[i].level0;
+            elapsed+=duration;
+            if (!level && duration>=100 && count<96) {
+                starts[count]=elapsed-duration; edges[count++]=elapsed;
+            }
+        }
+    }
+    vRingbufferReturnItem(ring,items);
+    mask|=matchShotEdges(edges,count,word) | matchShotEdges(starts,count,word);
+    return true;
+}
 void Peripherals::quiet() {
     notes=nullptr;
     if (microphone) M5.Mic.end();
-    M5.Speaker.end(); // StickS3 PYG3 amplifier OFF, including first RX after boot.
+    if (!amplifierQuiet) {
+        M5.Speaker.end(); // Disable PYG3, including the first receive window after boot.
+        amplifierQuiet=true;
+    }
     microphone=recording=speaker=false;
 }
 void Peripherals::startVoice() {
@@ -123,6 +164,7 @@ void Peripherals::play(Tune which) {
     if (receiving) return;
     if (microphone) { M5.Mic.end(); microphone=recording=false; }
     if (!speaker) {
+        amplifierQuiet=false;
         speaker=M5.Speaker.begin(); audioOn=millis();
         M5.Speaker.setVolume(72);
     }

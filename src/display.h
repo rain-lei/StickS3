@@ -12,6 +12,10 @@ struct View {
     bool incoming=false, rivalDragon=false;
     int energy=0, level=1, levelXp=0, mastery=0, hp=100, enemy=-1, ally=-1, enemyMax=100;
     Mode roomMode=Duel;
+    uint32_t cooldown[4]={};
+    int flight=-1;
+    bool hostileShot=false;
+    uint8_t layers=0,enemyLayers=0,enemyCharging=0;
     Skill skill=Flame;
     Effect effect=Waiting;
     uint32_t fxAge=9999;

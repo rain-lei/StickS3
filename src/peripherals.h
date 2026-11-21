@@ -13,13 +13,15 @@ public:
     void stopListening();
     IRRead readIR(uint32_t &word, Print *trace=nullptr);
     bool sendIR(uint32_t word);
+    bool sendShot(uint32_t word);
+    bool readShot(uint32_t word,uint8_t &mask);
     void startVoice();
     void updateVoice(Voice &v);
     void quiet();
     void play(Tune tune);
     void updateAudio(uint32_t now);
 private:
-    bool infrared=false, receiving=false, microphone=false, speaker=false, recording=false;
+    bool amplifierQuiet=false, infrared=false, receiving=false, microphone=false, speaker=false, recording=false;
     int16_t samples[320]={};
     const uint16_t *notes=nullptr;
     int note=0;

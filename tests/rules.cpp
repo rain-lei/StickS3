@@ -34,25 +34,17 @@ int main() {
     }
     assert(sustained.energy() > 0 && rhythmic.beats > sustained.beats);
 
-    Battle duel(Duel);
-    duel.resolve(Frost, 50, false, false);
-    assert(duel.hp[1] == 100 && duel.effect == Miss);
-    duel.resolve(Flame, 50, true, true);
-    assert(duel.hp[1] < 100 && duel.hp[0] == 100 && duel.effect == Block);
-    duel.resolve(Ward, 0, false, false);
-    duel.resolve(Frost, 90, true, false);
-    assert(duel.effect == Block && !duel.shield[0]);
     Battle raid(Raid);
     raid.hp[1] = 30;
-    raid.resolve(Bloom, 50, false, false);
+    raid.resolve(Bloom, 50);
     assert(raid.hp[1] > 30 && raid.turn == 1);
-    while (!raid.finished()) raid.resolve(Flame, 100, true, false);
+    while (!raid.finished()) raid.resolve(Flame, 100);
     assert(raid.boss == 0);
     auto turn = raid.turn;
-    raid.resolve(Flame, 100, true, false);
+    raid.resolve(Flame, 100);
     assert(raid.turn == turn);
     Battle solo(Trial);
-    while (!solo.finished()) solo.resolve(Ward, 0, false, false);
+    while (!solo.finished()) solo.resolve(Ward, 0);
     assert(solo.turn > 0 && solo.actor() == 0);
 
     uint32_t word = 0xBA45FF00;
@@ -99,6 +91,37 @@ int main() {
     dragon.reward(true);
     dragon.reward(false);
     assert(dragon.level()==2 && dragon.runes==1 && dragon.wins==2);
-    puts("PASS gestures, voice rhythm, duel, co-op, boss, NEC, game frames and progression");
+    // Independent fragments can complete one shot over retries. An index,
+    // room token or different payload cannot substitute for a missing byte.
+    Pulse shot[shotParts*shardPulses];
+    uint32_t signature=0x76543210, restored=0;
+    makeShot(signature,shot);
+    for (unsigned i=0;i<shotParts;++i) {
+        uint32_t ends[shardPulses], elapsed=0;
+        for (unsigned j=0;j<shardPulses;++j) {
+            Pulse part=shot[i*shardPulses+j];
+            elapsed+=part.mark;
+            ends[j]=elapsed+(j%2 ? 110 : 0);
+            elapsed+=part.space;
+        }
+        auto mask=matchShotEdges(ends,shardPulses,signature);
+        assert(mask==(1<<i));
+        restored|=mask;
+        assert(!matchShotEdges(ends,shardPulses-1,signature));
+        assert(!matchShotEdges(ends,shardPulses,signature^(1u<<(4*(i%6)))));
+    }
+    assert(shotToken(17,1,false)!=shotToken(17,1,true));
+    assert(restored==allShotParts && completeShot(0xf3) && !completeShot(0x1f));
+    // Any changed data nibble changes both parities. Any two changed
+    // data nibbles must change at least one parity.
+    for (int a=0;a<6;++a) for (uint32_t d=1;d<16;++d) {
+        uint32_t one=signature^(d<<(4*a));
+        assert(shotSymbol(one,6)!=shotSymbol(signature,6) && shotSymbol(one,7)!=shotSymbol(signature,7));
+        for (int b=a+1;b<6;++b) for (uint32_t e=1;e<16;++e) {
+            uint32_t two=one^(e<<(4*b));
+            assert(shotSymbol(two,6)!=shotSymbol(signature,6) || shotSymbol(two,7)!=shotSymbol(signature,7));
+        }
+    }
+    puts("PASS gestures, voice rhythm, projectile fragments, co-op, boss, NEC, game frames and progression");
 }
 

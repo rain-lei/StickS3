@@ -380,3 +380,33 @@ dialog::backdrop { background: #090910b8; backdrop-filter: blur(4px) }
 }
 @media(max-width:355px) { .mobile-brand b,.top-divider { display: none } .page-heading .btn { font-size: 12px } .brand { margin-top: 25px } .skill-card-art { opacity: .8 } .option-mastery { display: none } .slot-actions { grid-row: auto; grid-column: 1 / -1; margin-top: 8px } }
 @media(prefers-reduced-motion: reduce) { *,*::before,*::after { animation-duration: .01ms !important; transition-duration: .01ms !important; scroll-behavior: auto !important } }
+
+.battle-skill .duel-ready { color:var(--muted); font-variant-numeric:tabular-nums }
+.battle-skill:disabled { cursor:default; opacity:.55 }
+.duel-bolt { position:absolute; z-index:2; left:12%; top:58%; width:30px; height:6px; border-radius:100%; background:#ffbc66; box-shadow:0 0 15px #ff873e; animation:duel-flight .65s ease-in forwards; pointer-events:none }
+.duel-bolt.frost { background:#a4eaff; box-shadow:0 0 15px #69caff; animation-duration:.95s }
+.duel-bolt.incoming { animation-direction:reverse; top:46% }
+@keyframes duel-flight { to { left:85% } }
+@media (prefers-reduced-motion:reduce) { .duel-bolt { animation:none } }
+
+.watch-status { display:flex; align-items:center; gap:10px; margin:0 0 16px; color:var(--muted); font-size:14px }
+.watch-wait,.watch-stats,.watch-shot { padding:20px }
+.watch-wait p,.watch-effect { color:var(--muted) }
+.watch-fighters { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px }
+.watch-fighter { overflow:hidden; padding:0 }
+.watch-art { position:relative; isolation:isolate; height:clamp(160px,18vw,260px); overflow:hidden }
+.watch-art .cover { object-position:75% center }
+.watch-name { position:absolute; inset:auto 16px 12px; display:flex; align-items:center; justify-content:space-between }
+.watch-name strong { border:1px solid #b99beb99; border-radius:6px; padding:3px 9px; background:#181320da; color:#eadbff }
+.watch-art [data-charge] { position:absolute; left:16px; top:12px; font-weight:700 }
+.watch-art [data-charge]:not(:empty) { padding:4px 10px; border-radius:6px; background:#221b36d9 }
+.charging .watch-art { box-shadow:inset 0 0 0 2px var(--lilac) }
+.watch-spells { display:grid; grid-template-columns:repeat(4,1fr); gap:6px; margin-top:16px }
+.watch-spells div { display:grid; justify-items:center; gap:3px; font-size:13px }
+.watch-spells img { width:36px; border-radius:8px }
+.watch-spells b { font-variant-numeric:tabular-nums; color:#93e4c7 }
+.watch-spells .cooling img { opacity:.6 }
+.watch-spells .cooling b { color:var(--muted) }
+.watch-effect { min-height:1.5em; margin-top:12px }
+.watch-shot { margin-top:14px; color:var(--lilac) }
+@media (max-width:760px) { .watch-fighters { grid-template-columns:1fr } }

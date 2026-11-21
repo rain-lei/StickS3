@@ -28,19 +28,21 @@ struct Room { Envelope advert; uint32_t seen=0; };
 Room rooms[4];
 unsigned roomIndex=0;
 uint32_t slots[3]={}, now=0, lastInput=0, sceneAt=0, castAt=0, lastSample=0;
-uint32_t lastCast=0, lastRender=0, lastPacket=0, lastPeer=0, lastShot=0, guardAt=0;
-uint32_t lastFx=0, noteAt=0, noteLife=0, shownRevision=0, irStarted=0;
+uint32_t lastCast=0, lastRender=0, lastPacket=0, lastPeer=0, lastShot=0, activeShot=0;
+uint32_t lastFx=0, noteAt=0, noteLife=0, shownRevision=0, irStarted=0, fxSeen[2]={}, lampSeen=0;
 uint32_t evolutionAt=0;
 int lastLevel=1;
-float ax=0,ay=0,az=1,gy=0,guardRoll=0;
+float ax=0,ay=0,az=1,gy=0;
 int menu=0, runeAction=0, slot=0;
 int shieldSlot=-1;
-uint32_t shieldCode=0, shieldRevision=0;
+uint32_t shieldCode=0;
 Effect fx=Waiting;
 bool casting=false, sleepPet=false, rewarded=false, won=false, sideHeld=false;
-bool receiving=false, shotSent=false, guardSet=false, hasFx=false, boardOK=false, storeOK=false;
+bool receiving=false, shotSent=false, fxIncoming=false, hasFx=false, boardOK=false, storeOK=false;
 const char *notice="";
-const char *missHint="未确认红外接收窗口";
+uint8_t shotMask=0;
+bool liveDuel() { return scene==Online && match.battle.mode==Duel; }
+int playerIndex() { return match.leader ? 0 : 1; }
 ui::Status noticeStyle=ui::Status::Notice;
 void tell(const char *s, unsigned duration=1300, ui::Status style=ui::Status::Notice) {
     notice=s; noteAt=now; noteLife=duration; noticeStyle=style;
@@ -71,7 +73,7 @@ void home() {
 }
 void effect(Effect value) {
     fx=value; lastFx=now; hasFx=true;
-    device.play(sounds[value]);
+    if (!casting) device.play(sounds[value]);
 }
 void finish(const Battle &b,int me) {
     if (rewarded || !b.finished()) return;
@@ -88,7 +90,7 @@ void startRoom(bool search,Mode kind) {
     } else {
         match.host(kind,esp_random()|1u); enter(Hosting);
     }
-    rewarded=false; lastPacket=now-200; shownRevision=shieldRevision=0; lastPeer=now; guardSet=false;
+    rewarded=false; lastPacket=now-200; shownRevision=activeShot=lampSeen=0; fxSeen[0]=fxSeen[1]=0; lastPeer=now; hasFx=false;
 }
 void remember(const Envelope &in) {
     if (!in.data.host || in.data.phase!=Lobby || in.data.client) return;
@@ -105,11 +107,50 @@ void cycleRoom() {
 }
 void onTransition() {
     stopCast(); stopRX(); shotSent=false; lastShot=0;
-    if (match.phase==Prepare || match.phase==Aim) missHint="未确认红外接收窗口";
     if (match.phase==Feedback) {
         effect(match.battle.effect);
-        finish(match.battle, match.leader ? 0 : 1);
-    } else if (match.phase==Prepare) { guardRoll=0; guardSet=false; }
+        finish(match.battle, playerIndex());
+    }
+}
+void serviceDuel() {
+    auto &arena=match.arena;
+    const auto &state=arena.state;
+    const int me=playerIndex();
+    const auto shot=state.active;
+    // Local input stays independent of which optical transmission owns the IR hardware.
+    arena.local.charging=casting ? selected+1 : 0;
+    if (shot.proof()!=activeShot) {
+        bool resumeVoice=receiving && casting;
+        stopRX(); activeShot=shot.proof(); shotMask=0; shotSent=false;
+        arena.local.ready=arena.local.observed=0;
+        if (resumeVoice && (!shot.id || shot.receiver()!=me)) device.startVoice();
+    }
+    if (shot.id && !arena.over()) {
+        uint32_t code=shotToken(match.room,shot.id,shot.reverse);
+        if (shot.receiver()==me && !receiving && (!lastShot || now-lastShot>=285)) {
+            receiving=device.listen(); irStarted=millis();
+            if (!receiving) tell("红外接收器启动失败");
+        }
+        if (receiving) {
+            if (uint32_t(millis()-irStarted)>=(shot.reverse ? 70u : shot.skill==Frost ? 700u : 450u)) arena.local.ready=shot.proof();
+            while (device.readShot(code,shotMask)) {}
+            if (completeShot(shotMask)) arena.local.observed=shot.proof();
+        } else if (shot.receiver()!=me && state.ready==shot.proof() && (!shotSent || now-lastShot>=285)) {
+            if (!shotSent && !casting) device.quiet();
+            if (device.sendShot(code)) { shotSent=true; lastShot=now; }
+        }
+    }
+    for (int i=0;i<2;++i) {
+        const auto &p=state.player[i];
+        if (p.event==fxSeen[i]) continue;
+        fxSeen[i]=p.event; fxIncoming=i==me; effect(Effect(p.effect));
+    }
+    // A block belongs to the defender, even if other events arrive in the same update.
+    if (!receiving && !shot.id && lampSeen!=state.player[me].blocks) {
+        ++lampSeen;
+        if (shieldSlot>=0 && !device.sendIR(shieldCode)) tell("格挡成功，灯光发送失败");
+    }
+    if (arena.over()) { stopCast(); stopRX(); finish(match.battle,me); }
 }
 void serviceRoom() {
     Envelope in;
@@ -132,45 +173,11 @@ void serviceRoom() {
         home(); tell("连接超时",2500,ui::Status::Disconnected); return;
     }
     if (match.revision!=shownRevision) { shownRevision=match.revision; onTransition(); }
-    if (shieldSlot>=0 && match.takeShieldCue(shieldRevision)) {
-        if (!device.sendIR(shieldCode)) tell("格挡成功 · 灯未发");
-    }
     match.tick(now);
+    if (liveDuel()) serviceDuel();
     if (match.revision!=shownRevision) { shownRevision=match.revision; onTransition(); }
-    if (match.phase==Aim) {
-        uint32_t code=token(match.room,match.battle.turn);
-        if (!match.myTurn() && match.signal!=Observed) {
-            if (!receiving) {
-                receiving=device.listen();
-                now=millis(); irStarted=now;
-                missHint=receiving ? "未收到红外，请正对红外窗" : "接收器启动失败";
-                if (!receiving) { match.report(false,false); tell("红外启动失败"); }
-            }
-            if (receiving && now-irStarted>=35) match.listening(now);
-            // Drain queued captures before declaring a timeout. Noise and a
-            // complete retry can both arrive between two display refreshes.
-            uint32_t got=0;
-            while (receiving) {
-                IRRead status=device.readIR(got);
-                if (status==IRRead::Empty) break;
-                if (status==IRRead::Decoded && got==code) {
-                    missHint="红外已匹配，请检查无线连接";
-                    match.report(true,guardSet && now-guardAt<1050);
-                    break;
-                }
-                missHint=status==IRRead::Malformed ? "收到波形，未解出完整帧" : "收到其他红外码";
-            }
-            if (receiving && match.signal==Listening && now-match.since>=opticalWindowMs)
-                match.report(false,false);
-            if (match.signal==Observed) stopRX();
-        } else if (match.myTurn() && match.ready && (!shotSent || now-lastShot>=160)) {
-            if (!shotSent) device.quiet();
-            if (!device.sendIR(code)) tell("红外发射失败");
-            shotSent=true; lastShot=now;
-        }
-    }
-    if (now-lastPacket>=100) {
-        radio::send(match.message(),match.leader && match.phase==Lobby);
+    if (now-lastPacket>=(liveDuel() ? 45u : 100u)) {
+        radio::send(match.message(now),match.leader && match.phase==Lobby);
         lastPacket=now;
     }
 }
@@ -184,11 +191,7 @@ void sampleMotion() {
     if (scene==Nest && ax*ax+ay*ay+az*az>2.8f && now-lastInput>650) {
         lastInput=now; sleepPet=false; device.play(Chirp); tell("小龙醒了",1300,ui::Status::Selection);
     }
-    if (scene==Online && !match.myTurn() && (match.phase==Prepare || match.phase==Aim)) {
-        if (fabsf(gy)<35) guardRoll=0;
-        else guardRoll+=gy*std::min(dt,50u)/1000.f;
-        if (fabsf(guardRoll)>44) { guardSet=true; guardAt=now; guardRoll=0; }
-    }
+
 }
 int energy() {
     unsigned beat=(now-castAt)%600;
@@ -224,8 +227,10 @@ void release() {
         pet.train(selected); effect(selected==Frost ? Freeze : selected==Flame ? Burn : selected==Ward ? Guard : Heal);
         tell(pet.practice[selected]==3 ? "法术已精通" : "训练成功",1300,ui::Status::Success); savePet();
     } else if (scene==Solo) {
-        trial.resolve(selected,power,true,false); effect(trial.effect); finish(trial,0);
-    } else if (scene==Online) match.cast(selected,power,now);
+        trial.resolve(selected,power); effect(trial.effect); finish(trial,0);
+    } else if (scene==Online && !match.cast(selected,power,now)) {
+        tell("技能未就绪");
+    }
 }
 void startRune() {
     if (runeAction==3 && shieldSlot==slot) {
@@ -297,15 +302,44 @@ void input(bool aDown,bool aUp,bool bTap) {
         }
         return;
     }
-    if (scene==Online && (!match.myTurn() || match.phase!=Prepare || match.signal!=Idle)) return;
+    if (scene==Online && !liveDuel() && (!match.myTurn() || match.phase!=Prepare || match.signal!=Idle)) return;
     if (scene==Solo && hasFx && now-lastFx<1400) return;
     bool physical=scene==Invoke || scene==Reward || scene==LinkRune;
     if (physical) {
         if (bTap && !casting && scene!=LinkRune) slot=(slot+1)%3;
         if (aDown && !remoteCode(slots[slot])) { tell("请先绑定此槽"); return; }
     } else if (bTap && !casting) selected=Skill((selected+1)%4);
-    if (aDown) beginCast(!physical);
+    if (aDown && liveDuel()) {
+        int me=playerIndex();
+        auto &arena=match.arena;
+        auto &p=arena.state.player[me];
+        if (arena.remaining(me,selected,arena.clockAt(match.leader,now))) { tell("技能冷却中",650); return; }
+        if (selected==Ward && p.layers==maxLayers) { tell("护盾已叠满",650); return; }
+        if (selected==Bloom && p.hp==100) { tell("生命已满",650); return; }
+    }
+    if (aDown) beginCast(!physical && !receiving);
     if (casting && aUp) release();
+}
+void publishWatch() {
+    static uint32_t sentAt=0;
+    if (!watchEnabled(now) || now-sentAt<125) return;
+    sentAt=now;
+    const auto &arena=match.arena;
+    char players[2][84];
+    for (int i=0;i<2;++i) {
+        const auto &p=arena.state.player[i];
+        unsigned cd[4]={};
+        if (liveDuel()) for (int k=0;k<4;++k) cd[k]=arena.remaining(i,Skill(k),arena.clockAt(match.leader,now));
+        snprintf(players[i],sizeof(players[i]),"[%u,%u,%u,%u,%lu,%u,%u,%u,%u]",p.hp,p.layers,p.charging,
+                 p.effect,(unsigned long)p.event,cd[0],cd[1],cd[2],cd[3]);
+    }
+    const auto &shot=arena.state.active;
+    char line[240];
+    int n=snprintf(line,sizeof(line),"RIFT LIVE [1,%d,%d,%lu,%d,%s,%s,[%lu,%u,%u,%u]]\n",
+                   int(scene),networkScene() ? int(match.battle.mode) : 0,
+                   (unsigned long)(networkScene() ? match.room : 0),playerIndex(),players[0],players[1],
+                   (unsigned long)shot.id,shot.actor,shot.skill,shot.reverse);
+    if (n>0 && n<int(sizeof(line)) && Serial.availableForWrite()>=n) Serial.write((const uint8_t*)line,n);
 }
 ui::Status effectStatus(Effect value, bool incoming) {
     switch (value) {
@@ -346,21 +380,47 @@ void battleView(View& frame) {
             v.setPrompt(won ? "胜利" : "挑战失败", canContinue ? "A 继续" : "等待同步");
             return;
         }
-        if (online && match.phase == Aim) {
-            v.status = ui::Status::Judging;
-            v.setPrompt(match.myTurn() ? (shotSent ? "红外发射中" : "准备瞄准") : "翻腕格挡",
-                        "红外窗正对至结算");
+        if (liveDuel()) {
+            const auto &arena=match.arena;
+            const auto &opponent=arena.state.player[1-me];
+            frame.layers=arena.state.player[me].layers;
+            frame.enemyLayers=opponent.layers;
+            frame.enemyCharging=opponent.charging;
+            const auto &shot=arena.state.active;
+            if (shot.id) { frame.flight=shot.skill; frame.hostileShot=shot.actor!=me; }
+            const uint32_t clock=arena.clockAt(match.leader,now);
+            for (int i=0;i<4;++i) frame.cooldown[i]=arena.remaining(me,Skill(i),clock);
+            if (casting) {
+                v.status=ui::Status::Charging;
+                v.chargePercent=static_cast<uint8_t>(frame.energy);
+                v.onBeat=frame.onBeat;
+                char cue[64];
+                snprintf(cue,sizeof(cue),"%s %d%%  %s",skills[selected],frame.energy,motion.matches(selected) ? "可释放" : moves[selected]);
+                v.setPrompt(cue);
+            } else if (frame.hostileShot) {
+                v.status=ui::Status::Judging;
+                v.setPrompt(frame.flight==Frost ? "冰箭来袭 · 可叠盾" : "火斩来袭 · 可叠盾");
+            } else if (hasFx && frame.fxAge<750) {
+                v.status=effectStatus(fx,fxIncoming);
+                if (fx==Burn || fx==Freeze) {
+                    const bool fire=fx==Burn;
+                    if (!fxIncoming) v.setPrompt(fire ? "火斩命中" : "冰箭命中");
+                } else if (fx==Guard) v.setPrompt(fxIncoming ? "护盾展开" : "对方展开护盾");
+                else if (fx==Heal) v.setPrompt(fxIncoming ? "恢复生命" : "对方恢复生命");
+                else if (fx==Miss) v.setPrompt(fxIncoming ? "未命中" : "对方未命中");
+            } else {
+                v.status=ui::Status::Ready;
+                char cue[64];
+                snprintf(cue,sizeof(cue),"%s  按 A %s",skills[selected],moves[selected]);
+                v.setPrompt(cue);
+            }
             return;
         }
         if (feedback) {
-            // The turn has advanced after resolution. The defender is now the actor.
-            const bool incoming = online && battle.mode == Duel && match.myTurn();
-            v.status = effectStatus(battle.effect, incoming);
-            if (online && battle.effect == Miss) {
-                v.setPrompt("未命中", incoming ? missHint : "请查看守方的接收提示");
-            } else if (!incoming && (battle.effect == Burn || battle.effect == Freeze)) {
-                const bool fire = battle.effect == Burn;
-                v.skill = fire ? ui::Skill::FireSlash : ui::Skill::IceArrow;
+            v.status = effectStatus(battle.effect, false);
+            if (battle.effect==Burn || battle.effect==Freeze) {
+                const bool fire=battle.effect==Burn;
+                v.skill=fire ? ui::Skill::FireSlash : ui::Skill::IceArrow;
                 v.setPrompt(fire ? "火斩命中" : "冰箭命中");
             }
             return;
@@ -368,7 +428,6 @@ void battleView(View& frame) {
         if (online && (!match.myTurn() || match.signal != Idle)) {
             v.status = ui::Status::WaitingForPlayer;
             if (match.myTurn()) v.setPrompt("已出手", "等待判定");
-            else if (battle.mode == Duel) v.setPrompt("对手回合", "可翻腕格挡");
             else v.setPrompt("队友回合");
             return;
         }
@@ -401,10 +460,9 @@ void render() {
     frame.skillName=skills[selected];
     frame.mastery=pet.practice[selected];
     frame.roomMode=match.battle.mode;
-    frame.rivalDragon=scene==Online && match.battle.mode==Duel;
-    const bool duelFeedback=frame.rivalDragon && match.phase==Feedback;
-    frame.skill=duelFeedback ? match.skill : selected;
-    frame.incoming=duelFeedback && match.myTurn();
+    frame.rivalDragon=liveDuel();
+    frame.skill=selected;
+    frame.incoming=frame.rivalDragon && fxIncoming;
     frame.charging=casting;
     frame.energy=casting ? energy() : 0;
     const unsigned beat=(now-castAt)%600;
@@ -465,7 +523,7 @@ void render() {
             battleView(frame);
             if (scene==Training) frame.title="法术训练";
             else if (v.detail[0]) frame.title=v.detail;
-            else snprintf(header,sizeof(header),"%s / %s",v.mode==ui::Mode::Duel ? "面对面决斗" :
+            else snprintf(header,sizeof(header),"%s / %s",v.mode==ui::Mode::Duel ? "实时决斗" :
                           v.mode==ui::Mode::CoOp ? "双人裂隙龙" : "裂隙龙",skills[selected]);
             break;
         }
@@ -503,7 +561,7 @@ void setup() {
 void loop() {
     if (!boardOK) { delay(100); return; }
     M5.update(); now=millis();
-    if (scene==Nest && pollIRCheck(device)) { delay(2); return; }
+    if (pollIRCheck(device,scene==Nest)) { delay(2); return; }
     sampleMotion();
     if (networkScene()) serviceRoom();
     if (scene==Learn || scene==Challenge) serviceRune();
@@ -518,6 +576,7 @@ void loop() {
         device.updateVoice(voice);
         if (now-castAt>5500) { stopCast(); tell("蓄力超时",1300,ui::Status::RetryGesture); }
     }
+    publishWatch();
     device.updateAudio(millis());
     if (now-lastRender>=50) { render(); lastRender=now; }
     delay(2);

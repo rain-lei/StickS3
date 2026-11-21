@@ -7,6 +7,7 @@
   const availableRooms = ['duel','raid'];
   let route = { name:'home', detail:'' };
   let battle = null;
+  let stopWatch;
   let practiceMessage = '';
   let charge = null;
   let toastTimeout;
@@ -88,12 +89,15 @@
 
   function refresh(scroll = false) {
     resetCharge();
+    if (stopWatch) { stopWatch(); stopWatch=null; }
+    document.querySelector('.local-mode').lastChild.textContent=route.name==='watch' ? 'USB 实机观战' : '本地演练';
     const active = route.name === 'arena' ? (route.detail === 'solo' ? 'trials' : 'rooms') : route.name;
     const title = route.name === 'arena' ? modes[route.detail].title : navItems.find(item=>item[0]===active)[2];
     document.title = `${title} · 裂隙 RIFT`;
     $('#crumb').textContent = title;
     navigation(active);
     switch (route.name) {
+      case 'watch': main.innerHTML=watchView(); stopWatch=startWatch(main); break;
       case 'training': main.innerHTML = trainingView(skillById(route.detail), practiceMessage); break;
       case 'trials': main.innerHTML = trialsView(); break;
       case 'rooms': main.innerHTML = roomsView(route.detail); break;
@@ -101,6 +105,7 @@
       case 'arena':
         if (!battle || battle.mode !== route.detail) battle = newEncounter(route.detail);
         main.innerHTML = arenaView(battle);
+        if (battle.mode==='duel') duelButtons();
         break;
       default: main.innerHTML = homeView();
     }
@@ -109,6 +114,30 @@
       main.focus({ preventScroll:true });
     }
   }
+
+  function duelButtons() {
+    for (const button of main.querySelectorAll('.battle-skill')) {
+      const id=button.dataset.skill;
+      const remaining=Math.max(0,(battle.readyAt[0][id] || 0)-battle.clock);
+      button.disabled=!duelAvailable(battle,id,0);
+      button.querySelector('small').textContent=remaining ? (remaining/1000).toFixed(1)+' 秒' :
+        button.disabled ? (id==='ward'?'盾已叠满':'生命已满') : '就绪';
+    }
+  }
+  let previousTick=performance.now();
+  setInterval(() => {
+    const now=performance.now();
+    const dt=Math.min(now-previousTick,250);
+    previousTick=now;
+    if (route.name!=='arena' || battle?.mode!=='duel' || battle.result ||
+        document.hidden || dialog.open || document.body.classList.contains('menu-open')) return;
+    if (advanceDuel(battle,dt)) {
+      const focused=main.contains(document.activeElement) ? document.activeElement.dataset.skill : '';
+      main.innerHTML=arenaView(battle);
+      if (focused) main.querySelector(`[data-skill="${focused}"]`)?.focus({preventScroll:true});
+    }
+    duelButtons();
+  }, 80);
 
   function routeChanged() {
     if (dialog.open) dialog.close();
@@ -231,7 +260,7 @@
         persist(); updateSound(); tone(640);
         notify(progress.sound?'界面音效已开启':'界面音效已关闭');
         break;
-      case 'device': openDialog(deviceDialog()); break;
+      case 'device': location.hash=navUrl('watch'); break;
       case 'pet': openDialog(petDialog()); break;
       case 'help': openDialog(helpDialog()); break;
       case 'close': dialog.close(); break;

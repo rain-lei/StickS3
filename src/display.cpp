@@ -20,6 +20,36 @@ void portrait(Artwork art,int x,int y,int dx=0,int dy=0) {
     canvas.pushImage(x+dx,y+dy,tileW,tileH,tiles+art*tileW*tileH);
     canvas.clearClipRect();
 }
+const char *dragon[]={
+    "      g        g    ",
+    "      gg      gg    ",
+    "      bgg  bbggb    ",
+    " b    bbggbbbbbb    ",
+    " bb    bbbbbbhhbb   ",
+    " bbg   bbbbbbh.ebb  ",
+    " bbbg bbbbbbbbbbbbb ",
+    "  bbbgbbbbccccbbbbb ",
+    "   bbbbbbbccccccbb  ",
+    "g  bbbbbbcccccb     ",
+    "bg bbbbbbccccbb     ",
+    " bbbbbbbbcccb       ",
+    "  bbbbbbbbbbb       ",
+    "    bbbb  bbbb      "
+};
+void sprite(int x,int y,bool asleep,bool evolved,bool rival) {
+    for (int row=0;row<14;++row) {
+        for (int col=0;dragon[row][col];++col) {
+            char c=dragon[row][col];
+            if (c==' ') continue;
+            uint16_t color=c=='b' ? (rival ? 0xcadd : evolved ? 0x8c9f : 0x5734)
+                : c=='g' ? gold : c=='c' ? pale : c=='e' ? ink : 0xffff;
+            if (asleep && (c=='h' || c=='.' || c=='e')) color=c=='e' ? ink : 0x5734;
+            int scale=2;
+            int xx=x+(rival ? 19-col : col)*scale;
+            canvas.fillRect(xx,y+row*scale,scale,scale,color);
+        }
+    }
+}
 void textAt(int x,int y,const char *s,uint16_t color) {
     canvas.setTextColor(color); canvas.drawString(s,x,y);
 }
@@ -53,6 +83,20 @@ void draw(const View &v,uint32_t now) {
         int shake=v.fxAge<260 && (v.effect==Burn || v.effect==Freeze) ? int(now/42%5)-2 : 0;
         portrait(Frostling,6,25,v.incoming ? shake : 0,bob);
         portrait(v.rivalDragon ? DuelArt : BossArt,122,25,v.incoming ? 0 : shake);
+        int lunge=v.fxAge<340 ? int(sinf(v.fxAge*0.0092f)*9) : 0;
+        sprite(30+(v.incoming ? shake : lunge),59+bob,false,v.evolved,false);
+        sprite(170-(v.incoming ? lunge : shake),59-bob,false,false,true);
+        if (v.rivalDragon) {
+            for (int i=0;i<v.layers;++i) canvas.drawRoundRect(72+4*i,47-i*2,8,37+i*4,4,lilac);
+            for (int i=0;i<v.enemyLayers;++i) canvas.drawRoundRect(157-4*i,47-i*2,8,37+i*4,4,lilac);
+            if (v.flight>=0) {
+                int x=65+(now/8)%105, dir=v.hostileShot ? -1 : 1;
+                if (v.hostileShot) x=240-x;
+                canvas.fillTriangle(x+8*dir,67,x-7*dir,63,x-7*dir,71,colors[v.flight]);
+                canvas.drawFastHLine(x-(dir>0 ? 19 : -7),67,12,pale);
+            }
+            if (v.enemyCharging) canvas.drawCircle(188,66,14+(now/70)%8,colors[v.enemyCharging-1]);
+        }
         canvas.fillRect(6,24,112,9,panel);
         canvas.fillRect(122,24,112,9,panel);
         bar(9,25,106,v.hp,100,colors[Bloom]);
@@ -91,6 +135,7 @@ void draw(const View &v,uint32_t now) {
         textAt(8,35,headline,pale);
         canvas.setTextSize(1);
         if (*caption) textAt(9,65,caption,accent);
+        if (v.scene==Nest) sprite(126,62+bob,v.asleep,v.evolved,false);
         if (v.asleep) textAt(217,28,"zZ",pale);
     }
     if (v.evolved && (v.scene==Nest || v.enemy>=0)) {
@@ -109,10 +154,11 @@ void draw(const View &v,uint32_t now) {
         if (v.onBeat) canvas.drawCircle(x,63,r+2,pale);
         if (v.scene!=Training) canvas.drawTriangle(x,48,x-14,72,x+14,72,colors[v.skill]);
         bar(x-30,88,60,v.energy,100,colors[v.skill]);
-    } else if (v.fxAge<1100) {
+    }
+    if (v.fxAge<1100) {
         int step=v.fxAge/22;
         if (v.effect==Block || v.effect==Guard) {
-            int shieldX=v.incoming ? 92 : 137;
+            int shieldX=v.incoming ? 82 : 148;
             if (v.effect==Block) for (int i=0;i<7;++i) {
                 int side=v.incoming ? 1 : -1;
                 int tip=shieldX+(v.incoming ? 18 : -2);
@@ -142,7 +188,19 @@ void draw(const View &v,uint32_t now) {
     if (canvas.textWidth(prompt.title)>224) canvas.setFont(&fonts::efontCN_12);
     textAt(8,96,prompt.title,v.hasNotice ? gold : 0xffff);
     canvas.setFont(&fonts::efontCN_12);
-    textAt(8,117,prompt.hint,muted);
+    if (v.rivalDragon && v.hp>0 && v.enemy>0 && !v.hasNotice) {
+        static const char *names[]={"火","冰","盾","愈"};
+        for (int i=0;i<4;++i) {
+            int x=6+i*58;
+            uint16_t color=v.cooldown[i] ? muted : colors[i];
+            if (i==v.skill) canvas.drawRoundRect(x,114,54,20,3,color);
+            textAt(x+4,117,names[i],color);
+            char label[12];
+            if (v.cooldown[i]) snprintf(label,sizeof(label),"%u.%us",unsigned(v.cooldown[i]/1000),unsigned(v.cooldown[i]/100%10));
+            else snprintf(label,sizeof(label),"就绪");
+            textAt(x+20,117,label,color);
+        }
+    } else textAt(8,117,prompt.hint,muted);
     canvas.pushSprite(0,0);
 }
 }

@@ -99,14 +99,14 @@ function trialsView() {
 function roomsView(mode) {
   const raid = mode === 'raid';
   const item = modes[mode];
-  return `${pageTitle('联机房间','选择一个模式，用镜像角色预演双人回合。')}
+  return `${pageTitle('联机房间','选择一个模式，用镜像角色预演攻防或协作。')}
     <div class="mode-tabs" aria-label="房间模式"><a class="${!raid?'active':''}" ${!raid?'aria-current="page"':''} href="#/rooms/duel">${icon('swords')}双人决斗</a><a class="${raid?'active':''}" ${raid?'aria-current="page"':''} href="#/rooms/raid">${icon('users')}协作副本</a></div>
     <article class="mode-banner room-banner">${art(item.art,'cover')}<div class="mode-shade"></div><div class="mode-copy">
-      <span class="image-tag pet-tag">${icon('users')}双人预演</span><h2>${item.title}</h2><p>${raid?'和镜像队友轮流施法，共同击败拥有 145 点生命的裂隙守卫。':'和镜像术士交替行动，练习冰火克制与星鳞盾的格挡反击。'}</p>
+      <span class="image-tag pet-tag">${icon('users')}双人预演</span><h2>${item.title}</h2><p>${raid?'和镜像队友轮流施法，共同击败拥有 145 点生命的裂隙守卫。':'镜像术士会主动出招。抓住火斩和冰箭的冷却空隙，叠盾格挡或回春。'}</p>
       ${actionBtn('battle-start',raid?'开始副本预演':'开始决斗预演',item.glyph,'btn primary',`data-mode="${mode}"`)}</div></article>
     <section class="panel party-panel">${sectionTitle('出场成员')}<div class="party-line"><span class="party-avatar frost">${icon('snow')}</span><div><strong>霜芽</strong><small>你操控的精灵</small></div><span class="small-chip">玩家</span></div>
       <div class="party-line"><span class="party-avatar purple">${icon(raid?'shield':'swords')}</span><div><strong>${raid?'镜像队友':'镜像术士'}</strong><small>${raid?'协助攻击与治疗':'自动出招与格挡'}</small></div><span class="small-chip">浏览器模拟</span></div></section>
-    ${raid?'':`<section class="panel hint-panel">${icon('target')}<div><h2>双杖红外判定</h2><p>本地预演假定红外畅通。真机放出火焰斩或冰霜箭后，两杖的红外窗要正对至结算。守方可提前翻腕格挡，未命中时可在自己的屏幕查看接收提示。</p></div></section>`}`;
+    ${raid?'':`<section class="panel hint-panel">${icon('target')}<div><h2>双杖红外判定</h2><p>本地预演假定红外畅通。真机放出火焰斩或冰霜箭后，两杖的红外窗要正对至结算。星鳞盾可提前叠至三层。正向漏收时两杖会反向回探，两个方向都超时才判未命中。</p></div></section>`}`;
 }
 
 function healthMeter(label, value, max, color) {
@@ -119,13 +119,13 @@ function arenaView(battle) {
   const duel = battle.mode === 'duel';
   const back = duel || raid ? `#/rooms/${battle.mode}` : '#/trials';
   const won = battle.result === 'win';
-  const status = battle.result ? (won?'试炼胜利':'本场结束') : `第 ${duel||raid?Math.floor(battle.turn/2)+1:battle.turn+1} 回合`;
-  return `${pageTitle(item.title,duel?'与镜像术士交锋，点击法术执行本回合的动作。':raid?'镜像队友会在霜芽行动后自动施法。':'轮到霜芽行动，选择本回合的法术。',linkBtn(back,'返回大厅','back','btn secondary'))}
+  const status = battle.result ? (won?'试炼胜利':'本场结束') : duel ? '实时交锋' : `第 ${raid?Math.floor(battle.turn/2)+1:battle.turn+1} 回合`;
+  return `${pageTitle(item.title,duel?'镜像术士会主动出招。点击已就绪的法术，来袭时可叠盾反击。':raid?'镜像队友会在霜芽行动后自动施法。':'轮到霜芽行动，选择本回合的法术。',linkBtn(back,'返回大厅','back','btn secondary'))}
     <div class="arena-layout"><section class="panel arena-main">
-      <div class="arena-stage">${art(item.art,'cover')}<div class="arena-shade"></div><span class="image-tag pet-tag">${icon(item.glyph)}${status}</span><div class="opponent"><small>${duel?'模拟对手':'试炼 Boss'}</small><h2>${item.foe}</h2></div></div>
-      <div class="arena-stats">${healthMeter(item.foe,enemyHp(battle),item.health,'danger')}${healthMeter(petName,battle.hp[0],100,'vital')}${raid?healthMeter('镜像队友',battle.hp[1],100,'magic'):''}</div>
+      <div class="arena-stage">${art(item.art,'cover')}${duel && !battle.result ? battle.projectiles.map(p=>`<i aria-hidden="true" class="duel-bolt ${p.id} ${p.actor?'incoming':''}"></i>`).join('') : ''}<div class="arena-shade"></div><span class="image-tag pet-tag">${icon(item.glyph)}${status}</span><div class="opponent"><small>${duel?'模拟对手':'试炼 Boss'}</small><h2>${item.foe}</h2></div></div>
+      <div class="arena-stats">${healthMeter(duel ? item.foe+' · 盾 '+battle.shields[1] : item.foe,enemyHp(battle),item.health,'danger')}${healthMeter(duel ? petName+' · 盾 '+battle.shields[0] : petName,battle.hp[0],100,'vital')}${raid?healthMeter('镜像队友',battle.hp[1],100,'magic'):''}</div>
       ${battle.result ? `<div class="settlement"><h3>${won?'胜利！':'精灵力竭'}</h3><p>${won?`霜芽获得 ${item.reward} XP${duel?'':' 和 1 枚现实符文'}。`:'霜芽已回到灵巢休整，可以重新挑战。'}</p>${actionBtn('battle-start','再来一场',item.glyph,'btn primary',`data-mode="${battle.mode}"`)}${linkBtn('#/home','回到灵巢',null,'btn secondary')}</div>` : `<div class="spell-actions"><div class="section-heading"><h2>选择法术</h2>${duel?'':`<span class="small-chip tone ${omen(battle)}">${icon(skillById(omen(battle)).glyph)}${skillById(omen(battle)).element}预兆</span>`}</div>
-      <div class="battle-skills">${skills.map(s=>`<button type="button" data-act="battle-cast" data-skill="${s.id}" class="battle-skill ${s.id}">${art(s.id)}<span>${s.name}</span></button>`).join('')}</div></div>`}
+      <div class="battle-skills">${skills.map(s=>`<button type="button" data-act="battle-cast" data-skill="${s.id}" class="battle-skill ${s.id}">${art(s.id)}<span>${s.name}</span>${duel?'<small class="duel-ready"></small>':''}</button>`).join('')}</div></div>`}
     </section><section class="panel battle-history">${sectionTitle('战斗记录')}<ol class="timeline">${battle.lines.length?battle.lines.map((message,i)=>`<li class="${i===0?'fresh':''}">${icon('bolt')}<span>${esc(message)}</span></li>`).join(''):`<li>${icon('portal')}<span>霜芽进入${item.title}，等待第一次施法。</span></li>`}</ol></section></div>`;
 }
 
@@ -147,13 +147,9 @@ function petDialog() {
     <div class="pet-facts"><div><b>${countMastered()} / 4</b><small>已掌握法术</small></div><div><b>${progress.wins}</b><small>试炼与决斗胜场</small></div><div><b>${progress.runes}</b><small>现实符文</small></div></div>
     <h3>最近足迹</h3>${progress.log.length?`<ul class="pet-log">${progress.log.slice(0,4).map(entry=>`<li>${icon(entry.glyph)}<span>${esc(entry.text)}</span></li>`).join('')}</ul>`:'<p class="muted">霜芽刚刚醒来。完成第一次训练，就会在这里留下足迹。</p>'}</div>`;
 }
-function deviceDialog() {
-  return `<div class="modal-pad">${dialogHeading('device','魔杖状态','网页演练进度保存在当前浏览器。两台魔杖通过 ESP-NOW 结算真机对战，结果显示在各自的板载屏幕上。')}
-    <dl class="detail-rows"><div><dt>当前模式</dt><dd>本地演练</dd></div><div><dt>StickS3</dt><dd>未连接</dd></div><div><dt>红外收发</dt><dd>未接入</dd></div><div><dt>演练存档</dt><dd>${storageAvailable?'当前浏览器':'仅本次会话'}</dd></div></dl>${actionBtn('close','知道了',null,'btn primary wide')}</div>`;
-}
 function helpDialog() {
   return `<div class="modal-pad">${dialogHeading('book','游玩指南','从一次施法开始，霜芽的每次成长都会记录在灵巢。')}
-    <ol class="help-list"><li>${icon('wand')}<div><strong>练习法术</strong><p>选择法术，按住蓄力到 50% 后松开。成功三次即可掌握该法术。</p></div></li><li>${icon('swords')}<div><strong>进入战斗</strong><p>点击技能即可结算回合，在试炼大厅挑战守卫，或到联机房间预演双人玩法。</p></div></li><li>${icon('rune')}<div><strong>预演机关</strong><p>为槽位命名并选择设备类型。触发时会显示模拟反馈并记录次数。</p></div></li></ol>${actionBtn('close','回到工作台',null,'btn primary wide')}</div>`;
+    <ol class="help-list"><li>${icon('wand')}<div><strong>练习法术</strong><p>选择法术，按住蓄力到 50% 后松开。成功三次即可掌握该法术。</p></div></li><li>${icon('swords')}<div><strong>进入战斗</strong><p>试炼与协作按回合行动。实时决斗中双方自由出招，观察来袭的法术，在冷却空隙叠盾。</p></div></li><li>${icon('rune')}<div><strong>预演机关</strong><p>为槽位命名并选择设备类型。触发时会显示模拟反馈并记录次数。</p></div></li></ol>${actionBtn('close','回到工作台',null,'btn primary wide')}</div>`;
 }
 function slotDialog(index) {
   const slot = progress.slots[index];

@@ -14,8 +14,13 @@ if not exist ".venv\Scripts\pio.exe" (
     echo Run stick.cmd setup first.
     exit /b 1
 )
+if /i "%~1"=="watch" goto watch
 if "%~1"=="" goto build
 ".venv\Scripts\pio.exe" %*
+exit /b %errorlevel%
+
+:watch
+".venv\Scripts\python.exe" tools\watch.py
 exit /b %errorlevel%
 
 :setup
