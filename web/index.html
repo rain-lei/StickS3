@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101119">
+  <meta name="description" content="裂隙魔杖的灵巢。和霜芽练习法术、进入试炼、预演现实机关。">
+  <title>灵巢总览 · 裂隙 RIFT</title>
+  <link rel="icon" href="assets/rift-mark.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="styles.css">
+  <script defer src="ui-icons.js"></script>
+  <script defer src="model.js"></script>
+  <script defer src="views.js"></script>
+  <script defer src="app.js"></script>
+</head>
+<body>
+  <a class="skip" href="#content">跳到主要内容</a>
+  <div id="workspace">
+    <aside id="sidebar" aria-label="工作台导航">
+      <a class="brand" href="#/home" aria-label="裂隙 RIFT 首页">
+        <img src="assets/rift-mark.svg" alt="" width="43" height="51">
+        <span class="brand-type"><strong>RIFT</strong><span>裂 隙 魔 杖</span></span>
+      </a>
+      <button class="icon-btn mobile-close" type="button" data-act="menu-close" aria-label="关闭导航" data-icon="close"></button>
+      <nav id="navigation" aria-label="主要导航"></nav>
+      <div class="sidebar-bottom">
+        <button id="board-status" class="board-card" type="button" data-act="device">
+          <span class="board-icon" data-icon="device"></span>
+          <span><strong>StickS3</strong><small><i class="dot offline"></i>设备未连接</small></span>
+          <span class="board-more" data-icon="chevron"></span>
+        </button>
+        <button type="button" class="guide" data-act="help"><span data-icon="help"></span>游玩指南</button>
+      </div>
+    </aside>
+    <button type="button" id="scrim" aria-label="关闭导航" data-act="menu-close" hidden></button>
+    <div class="workspace-main">
+      <header class="topbar">
+        <div class="top-left">
+          <button type="button" class="icon-btn menu-btn" data-act="menu" data-icon="menu" aria-label="打开导航" aria-controls="sidebar" aria-expanded="false"></button>
+          <div class="breadcrumbs"><a class="mobile-brand" href="#/home" aria-label="裂隙 RIFT 首页"><img src="assets/rift-mark.svg" width="21" height="24" alt=""><b>RIFT</b></a><span class="crumb-icon" data-icon="compass"></span><span class="crumb-root">工作台</span><span class="separator">/</span><strong id="crumb">灵巢总览</strong></div>
+        </div>
+        <div class="top-actions">
+          <button type="button" class="local-mode" data-act="device"><i class="dot"></i>本地演练</button>
+          <span class="top-divider"></span>
+          <button type="button" id="sound" class="icon-btn" data-act="sound" aria-label="开启音效" aria-pressed="false"></button>
+        </div>
+      </header>
+      <main id="content" tabindex="-1"></main>
+    </div>
+  </div>
+  <dialog id="dialog" aria-labelledby="dialog-title">
+    <div class="dialog-frame">
+      <button type="button" class="icon-btn dialog-close" data-act="close" aria-label="关闭弹窗" data-icon="close"></button>
+      <div id="dialog-body"></div>
+    </div>
+  </dialog>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <noscript>打开 JavaScript 后即可使用灵巢工作台。</noscript>
+</body>
+</html>
