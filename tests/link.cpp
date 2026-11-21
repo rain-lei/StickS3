@@ -20,6 +20,9 @@ int main() {
     Packet result=guest.message();
     exchange();
     assert(host.battle.hp[0]==93 && host.battle.turn==1 && guest.battle.turn==1);
+    uint32_t hostCue=0, guestCue=0;
+    assert(!host.takeShieldCue(hostCue) && guest.takeShieldCue(guestCue));
+    assert(!guest.takeShieldCue(guestCue));
     host.receive(result,now);
     assert(host.battle.turn==1);
     auto stale=host.message();
@@ -34,6 +37,7 @@ int main() {
     host.tick(now);
     exchange();
     assert(guest.battle.effect==Miss && guest.battle.hp[0]==93);
+    assert(!guest.takeShieldCue(guestCue) && !host.takeShieldCue(hostCue));
     Match stranger;
     stranger.join(Duel,1742,999);
     assert(!host.receive(stranger.message(),now));

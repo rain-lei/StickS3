@@ -1,7 +1,7 @@
 #pragma once
 #include "pet.h"
 namespace rift {
-enum Scene { Nest, Training, Solo, Hosting, Search, Online, Runes, Learn, Invoke, Challenge, Reward };
+enum Scene { Nest, Training, Solo, Hosting, Search, Online, Runes, Learn, Invoke, Challenge, Reward, LinkRune };
 struct View {
     Scene scene=Nest;
     const char *title="", *action="", *hint="", *notice="";

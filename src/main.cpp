@@ -34,6 +34,8 @@ uint32_t evolutionAt=0;
 int lastLevel=1;
 float ax=0,ay=0,az=1,gy=0,guardRoll=0;
 int menu=0, runeAction=0, slot=0;
+int shieldSlot=-1;
+uint32_t shieldCode=0, shieldRevision=0;
 Effect fx=Waiting;
 bool casting=false, sleepPet=false, rewarded=false, won=false, sideHeld=false;
 bool receiving=false, shotSent=false, guardSet=false, hasFx=false, boardOK=false, storeOK=false;
@@ -82,7 +84,7 @@ void startRoom(bool search,Mode kind) {
     } else {
         match.host(kind,esp_random()|1u); enter(Hosting);
     }
-    rewarded=false; lastPacket=now-200; shownRevision=0; lastPeer=now; guardSet=false;
+    rewarded=false; lastPacket=now-200; shownRevision=shieldRevision=0; lastPeer=now; guardSet=false;
 }
 void remember(const Envelope &in) {
     if (!in.data.host || in.data.phase!=Lobby || in.data.client) return;
@@ -123,6 +125,10 @@ void serviceRoom() {
     if (scene==Hosting && match.phase!=Lobby) enter(Online);
     if ((scene==Online || !match.leader) && now-lastPeer>5500 && !match.battle.finished()) {
         home(); tell("连接超时，可重新建房",2500); return;
+    }
+    if (match.revision!=shownRevision) { shownRevision=match.revision; onTransition(); }
+    if (shieldSlot>=0 && match.takeShieldCue(shieldRevision)) {
+        if (!device.sendIR(shieldCode)) tell("格挡成功，灯光发送失败");
     }
     match.tick(now);
     if (match.revision!=shownRevision) { shownRevision=match.revision; onTransition(); }
@@ -180,12 +186,16 @@ void beginCast(bool microphone) {
 }
 void release() {
     int power=energy();
-    bool invoke=scene==Invoke || scene==Reward;
+    bool invoke=scene==Invoke || scene==Reward || scene==LinkRune;
     bool validMove=invoke ? motion.matches(Flame) || motion.matches(Frost) : motion.matches(selected);
     bool timely=now-castAt<=5500;
     stopCast();
     if (!validMove || !timely) { tell("符文未成形，再试一次"); return; }
     if (invoke) {
+        if (scene==LinkRune) {
+            shieldSlot=slot; shieldCode=slots[slot]; enter(Runes);
+            tell("此机关将响应你的成功格挡"); return;
+        }
         bool sent=device.sendIR(slots[slot]);
         if (sent) { enter(Runes); device.play(VictoryTone); tell("机关指令已发出"); }
         else tell("红外发射失败");
@@ -200,10 +210,13 @@ void release() {
     } else if (scene==Online) match.cast(selected,power,now);
 }
 void startRune() {
+    if (runeAction==3 && shieldSlot==slot) {
+        shieldSlot=-1; shieldCode=0; tell("格挡联动已关闭"); return;
+    }
     if (runeAction!=0 && !remoteCode(slots[slot])) { tell("先学习这个机关"); return; }
-    if (runeAction==1) {
+    if (runeAction==1 || runeAction==3) {
         if (!pet.runes) { tell("击败裂隙龙，获得现实符文"); return; }
-        enter(Invoke); return;
+        enter(runeAction==1 ? Invoke : LinkRune); return;
     }
     enter(runeAction==0 ? Learn : Challenge);
     if (!device.listen()) { enter(Runes); tell("红外接收启动失败"); }
@@ -213,7 +226,10 @@ void serviceRune() {
     if (device.readIR(code) && remoteCode(code)) {
         if (scene==Learn) {
             bool saved=storeOK && storage.putUInt(slotKeys[slot],code)==sizeof(code);
-            if (saved) slots[slot]=code;
+            if (saved) {
+                if (slot==shieldSlot && slots[slot]!=code) shieldSlot=-1;
+                slots[slot]=code;
+            }
             enter(Runes); tell(saved ? "机关绑定成功" : "机关保存失败"); device.play(Chirp);
         } else if (code==slots[slot]) {
             enter(Runes); pet.xp+=3; tell("机关挑战成功"); savePet(); device.play(VictoryTone);
@@ -250,7 +266,7 @@ void input(bool aDown,bool aUp,bool bTap) {
         return;
     }
     if (scene==Runes) {
-        if (bTap) { if (++slot==3) { slot=0; runeAction=(runeAction+1)%3; } }
+        if (bTap) { if (++slot==3) { slot=0; runeAction=(runeAction+1)%4; } }
         if (aDown) startRune();
         return;
     }
@@ -265,11 +281,12 @@ void input(bool aDown,bool aUp,bool bTap) {
     }
     if (scene==Online && (!match.myTurn() || match.phase!=Prepare || match.signal!=Idle)) return;
     if (scene==Solo && hasFx && now-lastFx<1400) return;
-    if (scene==Invoke || scene==Reward) {
-        if (bTap && !casting) slot=(slot+1)%3;
+    bool physical=scene==Invoke || scene==Reward || scene==LinkRune;
+    if (physical) {
+        if (bTap && !casting && scene!=LinkRune) slot=(slot+1)%3;
         if (aDown && !remoteCode(slots[slot])) { tell("此槽为空，长按 B 回巢绑定"); return; }
     } else if (bTap && !casting) selected=Skill((selected+1)%4);
-    if (aDown) beginCast(scene!=Invoke && scene!=Reward);
+    if (aDown) beginCast(!physical);
     if (casting && aUp) release();
 }
 void render() {
@@ -282,6 +299,7 @@ void render() {
     v.onBeat=(now-castAt)%600<85 || (now-castAt)%600>515;
     v.rivalDragon=scene==Online && match.battle.mode==Duel;
     v.incoming=v.rivalDragon && match.phase==Feedback && match.myTurn();
+    if (v.rivalDragon && match.phase==Feedback) v.skill=match.skill;
     v.charging=casting; v.energy=casting ? energy() : 0; v.asleep=scene==Nest && sleepPet;
     v.effect=fx; v.fxAge=hasFx ? now-lastFx : 9999;
     switch(scene) {
@@ -289,13 +307,14 @@ void render() {
             snprintf(title,sizeof(title),"%s / XP %lu",pet.wins ? "守隙者" : "初生", (unsigned long)pet.xp);
             snprintf(line,sizeof(line),"%s",sleepPet ? "小龙睡着了" : menus[menu]);
             v.hint=sleepPet ? "摇一摇或按键唤醒" : "B 切换   A 进入"; break;
-        case Runes: case Learn: case Challenge: case Invoke: case Reward: {
+        case Runes: case Learn: case Challenge: case Invoke: case Reward: case LinkRune: {
             snprintf(title,sizeof(title),"现实符文 ×%lu",(unsigned long)pet.runes);
-            const char *actions[]={"学习","施放","挑战"};
+            const char *actions[]={"学习","施放","挑战",slot==shieldSlot ? "解除联动" : "格挡联动"};
             snprintf(line,sizeof(line),"机关 %d  /  %s  /  %s",slot+1,remoteCode(slots[slot]) ? "已绑定" : "空槽",
-                scene==Runes ? actions[runeAction] : scene==Reward ? "通关奖励" : scene==Learn ? "学习" : scene==Challenge ? "挑战" : "施放");
+                scene==Runes ? actions[runeAction] : scene==Reward ? "通关奖励" : scene==Learn ? "学习" : scene==Challenge ? "挑战" : scene==LinkRune ? "格挡联动" : "施放");
             v.hint=scene==Runes ? "B 切换   A 选择   长 B 回巢" :
-                scene==Learn || scene==Challenge ? "对准魔杖，按遥控器按键" : "B 选槽   按住 A 挥杖后松开";
+                scene==Learn || scene==Challenge ? "对准魔杖，按遥控器按键" :
+                scene==LinkRune ? "按住 A 挥杖，确认格挡联动" : "B 选槽   按住 A 挥杖后松开";
             break;
         }
         case Search:

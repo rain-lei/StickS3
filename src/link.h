@@ -34,6 +34,13 @@ struct Match {
         *this=Match(); battle=Battle(mode); room=id; client=cookie;
     }
     bool myTurn() const { return battle.actor()==(leader ? 0 : 1); }
+    bool takeShieldCue(uint32_t &lastPlayed) const {
+        // In feedback the turn has advanced, so the defender is now the actor.
+        if (phase!=Feedback || battle.mode!=Duel || battle.effect!=Block || !myTurn()
+            || (leader && !peerAck) || lastPlayed==revision) return false;
+        lastPlayed=revision;
+        return true;
+    }
     void advance(Phase next,uint32_t now) {
         ++revision; phase=next; since=now; peerAck=ready=hit=blocked=false; signal=Idle;
     }

@@ -91,8 +91,16 @@ void draw(const View &v,uint32_t now) {
     } else if (v.fxAge<1100) {
         int step=v.fxAge/22;
         if (v.effect==Block || v.effect==Guard) {
-            canvas.drawRoundRect(131,41,16,45,7,gold);
-            canvas.drawRoundRect(133,44,12,39,5,pale);
+            int shieldX=v.incoming ? 92 : 137;
+            if (v.effect==Block) for (int i=0;i<7;++i) {
+                int side=v.incoming ? 1 : -1;
+                int tip=shieldX+(v.incoming ? 18 : -2);
+                int tail=tip+side*(19+(i*7+step)%24);
+                int y=53+i*4;
+                canvas.fillTriangle(tip,y,tail,y-4,tail,y+3,colors[v.skill]);
+            }
+            canvas.drawRoundRect(shieldX,41,16,45,7,gold);
+            canvas.drawRoundRect(shieldX+2,44,12,39,5,pale);
         } else if (v.effect==Burn || v.effect==Freeze || v.effect==Heal) {
             uint16_t c=v.effect==Burn ? colors[Flame] : v.effect==Freeze ? colors[Frost] : colors[Bloom];
             for(int i=0;i<18;++i) {
