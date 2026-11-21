@@ -311,6 +311,10 @@ void render() {
     v.title=title; v.action=line; v.hint=details;
     v.notice=now-noteAt<noteLife ? notice : "";
     v.scene=scene; v.skill=selected; v.level=pet.level(); v.evolved=pet.level()>=2;
+    v.levelXp=v.level==30 ? 30 : pet.xp%30;
+    v.mastery=pet.practice[selected];
+    v.skillName=skills[selected];
+    v.roomMode=match.battle.mode;
     v.evolving=evolutionAt && now-evolutionAt<1700;
     v.onBeat=(now-castAt)%600<85 || (now-castAt)%600>515;
     v.rivalDragon=scene==Online && match.battle.mode==Duel;
@@ -346,8 +350,8 @@ void render() {
             const bool online=scene==Online, training=scene==Training;
             const Battle &b=online ? match.battle : trial;
             if (training) {
-                v.title="符文训练";
-                snprintf(line,sizeof(line),"%s  精通 %u/3",skills[selected],unsigned(pet.practice[selected]));
+                v.title="法术训练";
+                snprintf(line,sizeof(line),"按住 A %s，松开施法",moves[selected]);
             } else {
                 v.title=b.mode==Duel ? "面对面决斗" : b.mode==Raid ? "双人裂隙龙" : "试炼 / 裂隙龙";
                 int me=online && !match.leader ? 1 : 0;
@@ -376,7 +380,8 @@ void render() {
             if (casting) {
                 snprintf(line,sizeof(line),"%s  %d%%  %s",skills[selected],v.energy,motion.matches(selected) ? "可释放" : moves[selected]);
                 v.hint="发声蓄力   松开 A 释放";
-            } else snprintf(details,sizeof(details),"B 换技  按 A %s  长 B 回巢",moves[selected]);
+            } else if (training) v.hint="B 换技   长 B 回巢";
+            else snprintf(details,sizeof(details),"B 换技  按 A %s  长 B 回巢",moves[selected]);
             break;
         }
     }
