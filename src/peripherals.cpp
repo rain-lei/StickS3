@@ -3,6 +3,7 @@
 #include <M5Unified.h>
 #include <Arduino.h>
 #include <driver/rmt.h>
+#include <driver/gpio.h>
 #include <freertos/ringbuf.h>
 
 namespace rift {
@@ -30,6 +31,7 @@ bool Peripherals::initIR() {
     r.rx_config.idle_threshold=12000;
     if (rmt_config(&r)!=ESP_OK || rmt_driver_install(rx,2048,0)!=ESP_OK
         || rmt_get_ringbuf_handle(rx,&ring)!=ESP_OK || !ring) return false;
+    gpio_pullup_en(GPIO_NUM_42);
     rmt_rx_stop(rx);
     infrared=true;
     return true;
@@ -49,12 +51,22 @@ void Peripherals::stopListening() {
     receiving=false;
 }
 
-IRRead Peripherals::readIR(uint32_t &word) {
+IRRead Peripherals::readIR(uint32_t &word, Print *trace) {
     if (!receiving) return IRRead::Empty;
     size_t size=0;
     auto items=static_cast<rmt_item32_t*>(xRingbufferReceive(ring,&size,0));
     if (!items) return IRRead::Empty;
-    Pulse frame[SOC_RMT_MEM_WORDS_PER_CHANNEL]={};
+    if (trace) {
+        trace->print("RIFT PULSES");
+        for (size_t i=0;i<size/sizeof(*items);++i) {
+            trace->printf(" %d,%d",items[i].level0 ? int(items[i].duration0) : -int(items[i].duration0),
+                          items[i].level1 ? int(items[i].duration1) : -int(items[i].duration1));
+        }
+        trace->println();
+    }
+    // The legacy RMT driver can deliver more than one hardware memory block.
+    // Skip noise before the NEC header and leave room for split marks.
+    Pulse frame[72]={};
     size_t marks=0;
     bool malformed=false;
     for (size_t i=0;i<size/sizeof(*items);++i) {
@@ -63,11 +75,13 @@ IRRead Peripherals::readIR(uint32_t &word) {
             auto us=half ? items[i].duration1 : items[i].duration0;
             if (!us) continue;
             if (!level) {
-                if (marks==sizeof(frame)/sizeof(frame[0]) || (marks && !frame[marks-1].space)) { malformed=true; break; }
+                if (!marks && !nearPulse(us,9000)) continue;
+                if (marks==sizeof(frame)/sizeof(frame[0])) break;
+                if (marks && !frame[marks-1].space) { malformed=true; break; }
                 frame[marks++].mark=us;
             } else if (marks) frame[marks-1].space=us;
         }
-        if (malformed) break;
+        if (malformed || marks==sizeof(frame)/sizeof(frame[0])) break;
     }
     vRingbufferReturnItem(ring,items);
     return !malformed && readCapture(frame,marks,word) ? IRRead::Decoded : IRRead::Malformed;

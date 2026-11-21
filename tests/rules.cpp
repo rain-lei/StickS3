@@ -79,6 +79,20 @@ int main() {
     assert(!readCapture(captured,35,decoded));
     captured[9].space=3100;
     assert(!readCapture(captured,36,decoded));
+    // COM6 -> COM8. Leading-edge delays shortened individual marks while
+    // the intervals between successive ends still carry all 32 data bits.
+    Pulse bench[]={{9046,4742},{307,535},{623,1640},{621,1983},{257,480},{598,666},
+        {518,1822},{418,478},{595,589},{595,536},{516,642},{465,1824},{493,480},{657,555},
+        {574,531},{580,1656},{572,1612},{645,619},{437,1852},{465,534},{624,1664},{546,1613},
+        {649,1640},{600,478},{650,562},{563,594},{522,1687},{548,479},{650,1692},{595,1563},
+        {656,1790},{441,480},{644,594},{544,0}};
+    assert(readCapture(bench,34,decoded) && decoded==0x3A3AC426);
+    Pulse split[35];
+    std::copy(bench,bench+3,split);
+    split[3]={84,152}; split[4]={385,bench[3].space};
+    std::copy(bench+4,bench+34,split+5);
+    assert(readCapture(split,35,decoded) && decoded==0x3A3AC426);
+    assert(!readCapture(split,34,decoded));
     Pet dragon;
     for(int i=0;i<4;++i) dragon.train(Frost);
     assert(dragon.trained(Frost) && dragon.practice[Frost]==3 && !dragon.trained(Ward));

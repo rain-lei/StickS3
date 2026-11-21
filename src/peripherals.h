@@ -1,6 +1,7 @@
 #pragma once
 #include <stdint.h>
 #include "rules.h"
+class Print;
 
 namespace rift {
 enum Tune { Chirp, FireTone, IceTone, ShieldTone, HealTone, HurtTone, VictoryTone, BattleTone };
@@ -10,7 +11,7 @@ public:
     bool initIR();
     bool listen();
     void stopListening();
-    IRRead readIR(uint32_t &word);
+    IRRead readIR(uint32_t &word, Print *trace=nullptr);
     bool sendIR(uint32_t word);
     void startVoice();
     void updateVoice(Voice &v);

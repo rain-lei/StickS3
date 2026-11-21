@@ -42,6 +42,37 @@ inline bool readFrame(const Pulse *in, size_t n, uint32_t &word) {
 inline bool readCapture(const Pulse *in,size_t count,uint32_t &word) {
     for (size_t start=0; start+34<=count; ++start) {
         if (readFrame(in+start,34,word)) return true;
+        if (!nearPulse(in[start].mark,9000) || !nearPulse(in[start].space,4500)) continue;
+        // Use the ends of demodulated marks. A late falling edge then
+        // transfers time between a space and the next mark without changing
+        // their sum. Only bridge short interruptions inside one NEC mark.
+        size_t pos=start+1;
+        uint32_t value=0;
+        int previousSpace=0;
+        for (unsigned symbol=0; symbol<=32 && pos<count; ++symbol) {
+            unsigned mark=in[pos].mark;
+            while (pos+1<count && in[pos].space>0 && in[pos].space<=220
+                   && mark+in[pos].space+in[pos+1].mark<=950) {
+                mark+=in[pos].space+in[pos+1].mark;
+                ++pos;
+            }
+            if (mark<150 || mark>950) break;
+            if (symbol) {
+                int period=previousSpace+mark;
+                if (period>=1780 && period<=2700) value|=1u<<(symbol-1);
+                else if (period<850 || period>1450) break;
+            }
+            if (symbol==32) { word=value; return true; }
+            previousSpace=in[pos++].space;
+            if (previousSpace<250) break;
+            // A brief false low can interrupt a data space. It is too short
+            // to be a complete mark and cannot supply a missing data bit.
+            while (pos+1<count && in[pos].mark<150 && in[pos].space>220
+                   && previousSpace+in[pos].mark+in[pos].space<=2400) {
+                previousSpace+=in[pos].mark+in[pos].space;
+                ++pos;
+            }
+        }
     }
     return false;
 }

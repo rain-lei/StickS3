@@ -6,6 +6,7 @@
 #include "radio.h"
 #include "optical.h"
 #include "peripherals.h"
+#include "ir_check.h"
 
 using namespace rift;
 namespace {
@@ -383,6 +384,7 @@ void render() {
 }
 }
 void setup() {
+    Serial.begin(115200);
     M5.begin(M5.config());
     boardOK=M5.getBoard()==m5::board_t::board_M5StickS3;
     if (!boardOK) { M5.Display.print("RIFT requires M5Stack StickS3"); return; }
@@ -402,6 +404,7 @@ void setup() {
 void loop() {
     if (!boardOK) { delay(100); return; }
     M5.update(); now=millis();
+    if (scene==Nest && pollIRCheck(device)) { delay(2); return; }
     sampleMotion();
     if (networkScene()) serviceRoom();
     if (scene==Learn || scene==Challenge) serviceRune();
