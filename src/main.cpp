@@ -13,7 +13,6 @@ namespace {
 const char *menus[]={"训练场","单人试炼","创建决斗","创建双人副本","寻找房间","现实机关"};
 const char *skills[]={"火焰斩","冰霜箭","星鳞盾","回春阵"};
 const char *moves[]={"横挥","前推","翻腕","画圈"};
-const char *effects[]={"准备施法","火焰命中","冰冻结晶","格挡反击","未命中","护盾展开","回复生命"};
 const Tune sounds[]={Chirp,FireTone,IceTone,ShieldTone,HurtTone,ShieldTone,HealTone};
 const char *slotKeys[]={"ir0","ir1","ir2"};
 Preferences storage;
@@ -42,7 +41,10 @@ bool casting=false, sleepPet=false, rewarded=false, won=false, sideHeld=false;
 bool receiving=false, shotSent=false, guardSet=false, hasFx=false, boardOK=false, storeOK=false;
 const char *notice="";
 const char *missHint="未确认红外接收窗口";
-void tell(const char *s,unsigned duration=1300) { notice=s; noteAt=now; noteLife=duration; }
+ui::Status noticeStyle=ui::Status::Notice;
+void tell(const char *s, unsigned duration=1300, ui::Status style=ui::Status::Notice) {
+    notice=s; noteAt=now; noteLife=duration; noticeStyle=style;
+}
 void savePet() {
     if (pet.level()>lastLevel) { lastLevel=pet.level(); evolutionAt=now; }
     if (!storeOK || storage.putBytes("dragon",&pet,sizeof(pet))!=sizeof(pet)) tell("存档写入失败",3000);
@@ -121,17 +123,17 @@ void serviceRoom() {
         if (!match.receive(in.data,now)) continue;
         lastPeer=now;
         if (in.data.signal==Leaving && !match.battle.finished()) {
-            home(); tell("队友离开了房间",2400); return;
+            home(); tell("对方已离开",2400,ui::Status::Disconnected); return;
         }
     }
     if (scene==Search) { if (!fresh(roomIndex)) cycleRoom(); return; }
     if (scene==Hosting && match.phase!=Lobby) enter(Online);
     if ((scene==Online || !match.leader) && now-lastPeer>5500 && !match.battle.finished()) {
-        home(); tell("连接超时，可重新建房",2500); return;
+        home(); tell("连接超时",2500,ui::Status::Disconnected); return;
     }
     if (match.revision!=shownRevision) { shownRevision=match.revision; onTransition(); }
     if (shieldSlot>=0 && match.takeShieldCue(shieldRevision)) {
-        if (!device.sendIR(shieldCode)) tell("格挡成功，灯光发送失败");
+        if (!device.sendIR(shieldCode)) tell("格挡成功 · 灯未发");
     }
     match.tick(now);
     if (match.revision!=shownRevision) { shownRevision=match.revision; onTransition(); }
@@ -180,7 +182,7 @@ void sampleMotion() {
     ax=imu.accel.x; ay=imu.accel.y; az=imu.accel.z; gy=imu.gyro.y;
     if (casting) motion.sample(ax,ay,az,gy,dt);
     if (scene==Nest && ax*ax+ay*ay+az*az>2.8f && now-lastInput>650) {
-        lastInput=now; sleepPet=false; device.play(Chirp); tell("小龙回应了你的摇晃");
+        lastInput=now; sleepPet=false; device.play(Chirp); tell("小龙醒了",1300,ui::Status::Selection);
     }
     if (scene==Online && !match.myTurn() && (match.phase==Prepare || match.phase==Aim)) {
         if (fabsf(gy)<35) guardRoll=0;
@@ -206,21 +208,21 @@ void release() {
     bool validMove=invoke ? motion.matches(Flame) || motion.matches(Frost) : motion.matches(selected);
     bool timely=now-castAt<=5500;
     stopCast();
-    if (!validMove || !timely) { tell("符文未成形，再试一次"); return; }
+    if (!validMove || !timely) { tell("动作未识别",1300,ui::Status::RetryGesture); return; }
     if (invoke) {
         if (scene==LinkRune) {
             shieldSlot=slot; shieldCode=slots[slot]; enter(Runes);
-            tell("此机关将响应你的成功格挡"); return;
+            tell("格挡联动已开启",1300,ui::Status::Blocked); return;
         }
         bool sent=device.sendIR(slots[slot]);
-        if (sent) { enter(Runes); device.play(VictoryTone); tell("机关指令已发出"); }
+        if (sent) { enter(Runes); device.play(VictoryTone); tell("信号已发",1300,ui::Status::SignalSent); }
         else tell("红外发射失败");
         return;
     }
     lastCast=now;
     if (scene==Training) {
         pet.train(selected); effect(selected==Frost ? Freeze : selected==Flame ? Burn : selected==Ward ? Guard : Heal);
-        tell(pet.practice[selected]==3 ? "法术已精通" : "学会了一笔符文"); savePet();
+        tell(pet.practice[selected]==3 ? "法术已精通" : "训练成功",1300,ui::Status::Success); savePet();
     } else if (scene==Solo) {
         trial.resolve(selected,power,true,false); effect(trial.effect); finish(trial,0);
     } else if (scene==Online) match.cast(selected,power,now);
@@ -231,7 +233,7 @@ void startRune() {
     }
     if (runeAction!=0 && !remoteCode(slots[slot])) { tell("先学习这个机关"); return; }
     if (runeAction==1 || runeAction==3) {
-        if (!pet.runes) { tell("击败裂隙龙，获得现实符文"); return; }
+        if (!pet.runes) { tell("请先通关试炼"); return; }
         enter(runeAction==1 ? Invoke : LinkRune); return;
     }
     enter(runeAction==0 ? Learn : Challenge);
@@ -246,11 +248,11 @@ void serviceRune() {
                 if (slot==shieldSlot && slots[slot]!=code) shieldSlot=-1;
                 slots[slot]=code;
             }
-            enter(Runes); tell(saved ? "机关绑定成功" : "机关保存失败"); device.play(Chirp);
+            enter(Runes); tell(saved ? "已绑定" : "保存失败",1300,saved ? ui::Status::RemoteLearned : ui::Status::Notice); device.play(Chirp);
         } else if (code==slots[slot]) {
-            enter(Runes); pet.xp+=3; tell("机关挑战成功"); savePet(); device.play(VictoryTone);
-        } else tell("符文不匹配，继续尝试");
-    } else if (now-sceneAt>=9000) { enter(Runes); tell("接收超时"); }
+            enter(Runes); pet.xp+=3; tell("机关挑战成功",1300,ui::Status::Success); savePet(); device.play(VictoryTone);
+        } else tell("遥控键不匹配");
+    } else if (now-sceneAt>=9000) { enter(Runes); tell("接收超时",1300,ui::Status::LearnTimeout); }
 }
 void input(bool aDown,bool aUp,bool bTap) {
     if (scene==Nest) {
@@ -300,92 +302,184 @@ void input(bool aDown,bool aUp,bool bTap) {
     bool physical=scene==Invoke || scene==Reward || scene==LinkRune;
     if (physical) {
         if (bTap && !casting && scene!=LinkRune) slot=(slot+1)%3;
-        if (aDown && !remoteCode(slots[slot])) { tell("此槽为空，长按 B 回巢绑定"); return; }
+        if (aDown && !remoteCode(slots[slot])) { tell("请先绑定此槽"); return; }
     } else if (bTap && !casting) selected=Skill((selected+1)%4);
     if (aDown) beginCast(!physical);
     if (casting && aUp) release();
 }
+ui::Status effectStatus(Effect value, bool incoming) {
+    switch (value) {
+        case Burn:   return incoming ? ui::Status::TookHit : ui::Status::Hit;
+        case Freeze: return incoming ? ui::Status::Frozen : ui::Status::Hit;
+        case Block:  return incoming ? ui::Status::Blocked : ui::Status::OtherBlocked;
+        case Miss:   return ui::Status::Miss;
+        case Guard:  return ui::Status::GuardRaised;
+        case Heal:   return ui::Status::Healed;
+        default:     return ui::Status::Judging;
+    }
+}
+
+void battleView(View& frame) {
+    ui::BoardView& v=frame.status;
+    const bool online = scene == Online;
+    const Battle& battle = online ? match.battle : trial;
+    v.mode = scene == Training ? ui::Mode::Training :
+             !online ? ui::Mode::Trial :
+             battle.mode == Duel ? ui::Mode::Duel : ui::Mode::CoOp;
+
+    if (scene != Training) {
+        const int me=online && !match.leader ? 1 : 0;
+        frame.hp=battle.hp[me];
+        frame.enemy=battle.mode==Duel ? battle.hp[1-me] : battle.boss;
+        frame.enemyMax=battle.mode==Raid ? 145 : 100;
+        if (battle.mode==Raid) frame.ally=battle.hp[1-me];
+        const bool feedback = online ? match.phase == Feedback : hasFx && now - lastFx < 1400;
+        if (rewarded || feedback) {
+            if (battle.mode == Raid)
+                snprintf(v.detail, sizeof(v.detail), "我%d 友%d 敌%d", frame.hp, frame.ally, frame.enemy);
+            else
+                snprintf(v.detail, sizeof(v.detail), "我%d 敌%d", frame.hp, frame.enemy);
+        }
+        if (rewarded) {
+            v.status = won ? ui::Status::Victory : ui::Status::Defeat;
+            const bool canContinue = !online || !match.leader || match.peerAck || now-lastPeer>5500;
+            v.setPrompt(won ? "胜利" : "挑战失败", canContinue ? "A 继续" : "等待同步");
+            return;
+        }
+        if (online && match.phase == Aim) {
+            v.status = ui::Status::Judging;
+            v.setPrompt(match.myTurn() ? (shotSent ? "红外发射中" : "准备瞄准") : "翻腕格挡",
+                        "红外窗正对至结算");
+            return;
+        }
+        if (feedback) {
+            // The turn has advanced after resolution. The defender is now the actor.
+            const bool incoming = online && battle.mode == Duel && match.myTurn();
+            v.status = effectStatus(battle.effect, incoming);
+            if (online && battle.effect == Miss) {
+                v.setPrompt("未命中", incoming ? missHint : "请查看守方的接收提示");
+            } else if (!incoming && (battle.effect == Burn || battle.effect == Freeze)) {
+                const bool fire = battle.effect == Burn;
+                v.skill = fire ? ui::Skill::FireSlash : ui::Skill::IceArrow;
+                v.setPrompt(fire ? "火斩命中" : "冰箭命中");
+            }
+            return;
+        }
+        if (online && (!match.myTurn() || match.signal != Idle)) {
+            v.status = ui::Status::WaitingForPlayer;
+            if (match.myTurn()) v.setPrompt("已出手", "等待判定");
+            else if (battle.mode == Duel) v.setPrompt("对手回合", "可翻腕格挡");
+            else v.setPrompt("队友回合");
+            return;
+        }
+    }
+    if (!casting) {
+        v.status = ui::Status::Ready;
+        if (scene != Training && battle.mode != Duel) {
+            v.setPrompt("按住 A", battle.omen()==Frost ? "敌相冰 / B 换技" : "敌相火 / B 换技");
+        }
+    } else {
+        v.status = ui::Status::Charging;
+        v.chargePercent = static_cast<uint8_t>(frame.energy);
+        v.onBeat = frame.onBeat;
+        if (motion.matches(selected)) v.setPrompt("松开 A", "释放当前法术");
+        else v.setPrompt(moves[selected], "按住 A 蓄力");
+    }
+}
+
 void render() {
-    View v;
-    char line[100]={}, details[100]={}, title[64]={};
-    v.title=title; v.action=line; v.hint=details;
-    v.notice=now-noteAt<noteLife ? notice : "";
-    v.scene=scene; v.skill=selected; v.level=pet.level(); v.evolved=pet.level()>=2;
-    v.levelXp=v.level==30 ? 30 : pet.xp%30;
-    v.mastery=pet.practice[selected];
-    v.skillName=skills[selected];
-    v.roomMode=match.battle.mode;
-    v.evolving=evolutionAt && now-evolutionAt<1700;
-    v.onBeat=(now-castAt)%600<85 || (now-castAt)%600>515;
-    v.rivalDragon=scene==Online && match.battle.mode==Duel;
-    v.incoming=v.rivalDragon && match.phase==Feedback && match.myTurn();
-    if (v.rivalDragon && match.phase==Feedback) v.skill=match.skill;
-    v.charging=casting; v.energy=casting ? energy() : 0; v.asleep=scene==Nest && sleepPet;
-    v.effect=fx; v.fxAge=hasFx ? now-lastFx : 9999;
-    switch(scene) {
+    View frame;
+    ui::BoardView& v=frame.status;
+    char header[80]={};
+    frame.title=header;
+    frame.scene=scene;
+    frame.level=pet.level();
+    frame.levelXp=frame.level==30 ? 30 : pet.xp%30;
+    frame.evolved=frame.level>=2;
+    frame.evolving=evolutionAt && now-evolutionAt<1700;
+    frame.asleep=scene==Nest && sleepPet;
+    frame.skillName=skills[selected];
+    frame.mastery=pet.practice[selected];
+    frame.roomMode=match.battle.mode;
+    frame.rivalDragon=scene==Online && match.battle.mode==Duel;
+    const bool duelFeedback=frame.rivalDragon && match.phase==Feedback;
+    frame.skill=duelFeedback ? match.skill : selected;
+    frame.incoming=duelFeedback && match.myTurn();
+    frame.charging=casting;
+    frame.energy=casting ? energy() : 0;
+    const unsigned beat=(now-castAt)%600;
+    frame.onBeat=beat<85 || beat>515;
+    frame.effect=fx; frame.fxAge=hasFx ? now-lastFx : 9999;
+    static constexpr ui::Skill spellIcons[] = {ui::Skill::FireSlash, ui::Skill::IceArrow,
+                                               ui::Skill::Shield, ui::Skill::Heal};
+    v.skill = spellIcons[selected];
+    switch (scene) {
         case Nest:
-            snprintf(title,sizeof(title),"%s / XP %lu",pet.wins ? "守隙者" : "初生", (unsigned long)pet.xp);
-            snprintf(line,sizeof(line),"%s",sleepPet ? "小龙睡着了" : menus[menu]);
-            v.hint=sleepPet ? "摇一摇或按键唤醒" : "B 切换   A 进入"; break;
+            snprintf(header,sizeof(header),"%s / XP %lu",pet.wins ? "守隙者" : "初生",(unsigned long)pet.xp);
+            v.status = ui::Status::Selection;
+            if (sleepPet) v.setPrompt("休眠中", "按键或轻摇");
+            else v.setPrompt(menus[menu], "A 进入 / B 切换");
+            break;
         case Runes: case Learn: case Challenge: case Invoke: case Reward: case LinkRune: {
-            snprintf(title,sizeof(title),"现实符文 ×%lu",(unsigned long)pet.runes);
-            const char *actions[]={"学习","施放","挑战",slot==shieldSlot ? "解除联动" : "格挡联动"};
-            snprintf(line,sizeof(line),"机关 %d  /  %s  /  %s",slot+1,remoteCode(slots[slot]) ? "已绑定" : "空槽",
-                scene==Runes ? actions[runeAction] : scene==Reward ? "通关奖励" : scene==Learn ? "学习" : scene==Challenge ? "挑战" : scene==LinkRune ? "格挡联动" : "施放");
-            v.hint=scene==Runes ? "B 切换   A 选择   长 B 回巢" :
-                scene==Learn || scene==Challenge ? "对准魔杖，按遥控器按键" :
-                scene==LinkRune ? "按住 A 挥杖，确认格挡联动" : "B 选槽   按住 A 挥杖后松开";
+            v.mode = ui::Mode::Mechanism;
+            v.slot = static_cast<uint8_t>(slot + 1);
+            snprintf(v.detail, sizeof(v.detail), "%d / %s", slot + 1,
+                     remoteCode(slots[slot]) ? "已绑定" : "空槽");
+            snprintf(header,sizeof(header),"符文 %lu  ·  %s",(unsigned long)pet.runes,v.detail);
+            if (scene == Runes) {
+                const char* actions[] = {"学习遥控", "施放机关", "符文挑战",
+                                         slot == shieldSlot ? "解除联动" : "格挡联动"};
+                v.status = ui::Status::Selection;
+                v.setPrompt(actions[runeAction], "A 选择 / B 切换");
+            } else if (scene == Learn || scene == Challenge) {
+                v.status = ui::Status::LearnRemote;
+                if (scene == Challenge) v.setPrompt("按遥控键", "匹配选中机关");
+            } else {
+                v.status = ui::Status::AimAtDevice;
+                if (!remoteCode(slots[slot])) v.setPrompt("空机关槽", "长按 B 回巢绑定");
+                else if (casting) v.setPrompt("挥杖松 A", scene == LinkRune ? "确认格挡联动" : "对准所选设备");
+                else if (scene == LinkRune) v.setPrompt("绑定格挡", "按住 A 挥杖");
+                else v.setPrompt("按住 A 挥杖", "B 换机关");
+            }
             break;
         }
         case Search:
-            v.title="寻找房间";
-            if (fresh(roomIndex)) snprintf(line,sizeof(line),"%s  #%04X",rooms[roomIndex].advert.data.mode==Duel ? "决斗" : "副本",unsigned(rooms[roomIndex].advert.data.room & 65535));
-            else v.action="正在寻找附近的魔杖";
-            v.hint="B 换房   A 加入   长 B 回巢"; break;
+            frame.title="寻找房间";
+            v.mode = ui::Mode::Lobby;
+            v.status = ui::Status::WaitingForPlayer;
+            if (fresh(roomIndex)) {
+                const auto& room = rooms[roomIndex].advert.data;
+                snprintf(v.detail, sizeof(v.detail), "#%04X", unsigned(room.room & 65535));
+                frame.title=v.detail;
+                v.setPrompt(room.mode == Duel ? "决斗房间" : "共斗房间", "A 加入 / B 换房");
+            } else v.setPrompt("搜寻房间", "长按 B 返回");
+            break;
         case Hosting:
-            snprintf(title,sizeof(title),"房间 #%04X",unsigned(match.room & 65535));
-            v.action=match.leader ? "等待另一位玩家加入" : "正在加入房间";
-            v.hint="长按 B 返回巢穴"; break;
-        default: {
-            const bool online=scene==Online, training=scene==Training;
-            const Battle &b=online ? match.battle : trial;
-            if (training) {
-                v.title="法术训练";
-                snprintf(line,sizeof(line),"按住 A %s，松开施法",moves[selected]);
-            } else {
-                v.title=b.mode==Duel ? "面对面决斗" : b.mode==Raid ? "双人裂隙龙" : "试炼 / 裂隙龙";
-                int me=online && !match.leader ? 1 : 0;
-                v.hp=b.hp[me]; v.enemy=b.mode==Duel ? b.hp[1-me] : b.boss;
-                v.enemyMax=b.mode==Raid ? 145 : 100; if (b.mode==Raid) v.ally=b.hp[1-me];
-                if (rewarded) {
-                    v.action=won ? "胜利 · 小龙获得了经验" : "小龙力竭，试炼结束";
-                    v.hint="A 继续   长 B 回巢"; break;
-                }
-                if (online && match.phase==Aim) {
-                    v.action=match.myTurn() ? (shotSent ? "红外发射中" : "准备瞄准") : "静默判定 · 翻腕格挡";
-                    v.hint="红外窗正对，保持到结算"; break;
-                }
-                if ((online && match.phase==Feedback) || (!online && hasFx && now-lastFx<1400)) {
-                    v.action=effects[b.effect]; v.hint="结算中";
-                    if (online && b.effect==Miss)
-                        v.hint=match.myTurn() ? missHint : "请查看守方的接收提示";
-                    break;
-                }
-                if (online && !match.myTurn()) {
-                    v.action=b.mode==Duel ? "对手行动中" : "队友行动中";
-                    v.hint=b.mode==Duel ? "对手将出招，可翻腕格挡" : "等待队友施法"; break;
-                }
-                snprintf(line,sizeof(line),"%s  %s",skills[selected],b.mode==Duel ? "你的回合" : b.omen()==Frost ? "敌相 / 冰" : "敌相 / 火");
-            }
-            if (casting) {
-                snprintf(line,sizeof(line),"%s  %d%%  %s",skills[selected],v.energy,motion.matches(selected) ? "可释放" : moves[selected]);
-                v.hint="发声蓄力   松开 A 释放";
-            } else if (training) v.hint="B 换技   长 B 回巢";
-            else snprintf(details,sizeof(details),"B 换技  按 A %s  长 B 回巢",moves[selected]);
+            v.mode = ui::Mode::Lobby;
+            v.status = ui::Status::WaitingForPlayer;
+            snprintf(v.detail, sizeof(v.detail), "#%04X", unsigned(match.room & 65535));
+            snprintf(header,sizeof(header),"房间 %s",v.detail);
+            v.setPrompt(match.leader ? "等待加入" : "正在加入", "长按 B 返回");
+            break;
+        case Training: case Solo: case Online: {
+            battleView(frame);
+            if (scene==Training) frame.title="法术训练";
+            else if (v.detail[0]) frame.title=v.detail;
+            else snprintf(header,sizeof(header),"%s / %s",v.mode==ui::Mode::Duel ? "面对面决斗" :
+                          v.mode==ui::Mode::CoOp ? "双人裂隙龙" : "裂隙龙",skills[selected]);
             break;
         }
     }
-    draw(v,now);
+    if (now - noteAt < noteLife && notice[0]) {
+        frame.hasNotice=true;
+        v.status = noticeStyle;
+        if (noticeStyle == ui::Status::Disconnected) v.mode = ui::Mode::Lobby;
+        v.setPrompt(notice);
+    } else if (scene == Nest && evolutionAt && now - evolutionAt < 1700) {
+        v.status = ui::Status::Success;
+        v.setPrompt("小龙进化");
+    }
+    draw(frame,now);
 }
 }
 void setup() {
@@ -422,7 +516,7 @@ void loop() {
     input(M5.BtnA.wasPressed(),M5.BtnA.wasReleased(),tap);
     if (casting) {
         device.updateVoice(voice);
-        if (now-castAt>5500) { stopCast(); tell("蓄力消散，再次按 A"); }
+        if (now-castAt>5500) { stopCast(); tell("蓄力超时",1300,ui::Status::RetryGesture); }
     }
     device.updateAudio(millis());
     if (now-lastRender>=50) { render(); lastRender=now; }

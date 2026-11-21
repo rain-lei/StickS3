@@ -87,7 +87,7 @@ function trialsView() {
   return `${pageTitle('试炼大厅','观察守卫的属性预兆，选择克制它的法术。')}
     <article class="mode-banner solo-banner">${art('boss','cover')}<div class="mode-shade"></div>
       <div class="mode-copy"><span class="image-tag boss-tag">${icon('portal')}单人试炼</span><h2>裂隙守卫</h2>
-        <p>熔岩深处的守卫已经苏醒。护盾能减轻反击，回春阵可以维持霜芽的生命。</p>
+        <p>守护这片熔岩的裂隙龙已经苏醒。护盾能减轻反击，回春阵可以恢复霜芽的生命。</p>
         ${actionBtn('battle-start','开始挑战','swords','btn primary','data-mode="solo"')}</div>
     </article>
     <div class="fact-grid"><article class="panel fact">${icon('heart')}<div><small>守卫生命</small><strong>100 HP</strong></div></article>
@@ -105,7 +105,8 @@ function roomsView(mode) {
       <span class="image-tag pet-tag">${icon('users')}双人预演</span><h2>${item.title}</h2><p>${raid?'和镜像队友轮流施法，共同击败拥有 145 点生命的裂隙守卫。':'和镜像术士交替行动，练习冰火克制与星鳞盾的格挡反击。'}</p>
       ${actionBtn('battle-start',raid?'开始副本预演':'开始决斗预演',item.glyph,'btn primary',`data-mode="${mode}"`)}</div></article>
     <section class="panel party-panel">${sectionTitle('出场成员')}<div class="party-line"><span class="party-avatar frost">${icon('snow')}</span><div><strong>霜芽</strong><small>你操控的精灵</small></div><span class="small-chip">玩家</span></div>
-      <div class="party-line"><span class="party-avatar purple">${icon(raid?'shield':'swords')}</span><div><strong>${raid?'镜像队友':'镜像术士'}</strong><small>${raid?'协助攻击与治疗':'自动出招与格挡'}</small></div><span class="small-chip">浏览器模拟</span></div></section>`;
+      <div class="party-line"><span class="party-avatar purple">${icon(raid?'shield':'swords')}</span><div><strong>${raid?'镜像队友':'镜像术士'}</strong><small>${raid?'协助攻击与治疗':'自动出招与格挡'}</small></div><span class="small-chip">浏览器模拟</span></div></section>
+    ${raid?'':`<section class="panel hint-panel">${icon('target')}<div><h2>双杖红外判定</h2><p>本地预演假定红外畅通。真机放出火焰斩或冰霜箭后，两杖的红外窗要正对至结算。守方可提前翻腕格挡，未命中时可在自己的屏幕查看接收提示。</p></div></section>`}`;
 }
 
 function healthMeter(label, value, max, color) {
@@ -131,7 +132,7 @@ function arenaView(battle) {
 function runesView() {
   return `${pageTitle('现实机关','把一个遥控动作绑定到一个槽位，预演霜芽触发机关的效果。')}
     <article class="mode-banner rune-banner">${art('shrine','cover')}<div class="mode-shade"></div><div class="mode-copy"><span class="image-tag green-tag">${icon('rune')}符文收藏</span>
-      <h2>现实符文 <span class="rune-total">× ${progress.runes}</span></h2><p>通关单人试炼或协作副本可获得符文。三个机关槽都能在浏览器中预演。</p></div></article>
+      <h2>现实符文 <span class="rune-total">× ${progress.runes}</span></h2><p>三个槽位均可本地预演。真机施放需要已学习的遥控码，以及通过单人试炼或协作副本获得的符文。</p></div></article>
     <section class="home-section">${sectionTitle('机关槽位',`<span class="muted">${progress.slots.filter(Boolean).length} / 3 已绑定</span>`)}<div class="slot-grid">${progress.slots.map((slot,i)=>{
       const type = slotTypes.find(t=>t.id===slot?.type);
       return `<article class="panel slot ${slot?'bound':''}"><div class="slot-top"><span class="slot-symbol">${icon(type?.glyph||'link')}</span><small>槽位 0${i+1}</small></div><h3>${slot?esc(slot.name):'空槽位'}</h3><p>${slot?`${type.name} · 已预演 ${slot.used} 次`:'可绑定一个遥控动作'}</p><div class="slot-actions">${slot?`${actionBtn('slot-trigger','预演触发','play','btn compact primary',`data-index="${i}"`)}${actionBtn('slot-edit','管理',null,'btn compact secondary',`data-index="${i}"`)}`:actionBtn('slot-edit','绑定动作','plus','btn compact secondary',`data-index="${i}"`)}</div></article>`;
@@ -147,7 +148,7 @@ function petDialog() {
     <h3>最近足迹</h3>${progress.log.length?`<ul class="pet-log">${progress.log.slice(0,4).map(entry=>`<li>${icon(entry.glyph)}<span>${esc(entry.text)}</span></li>`).join('')}</ul>`:'<p class="muted">霜芽刚刚醒来。完成第一次训练，就会在这里留下足迹。</p>'}</div>`;
 }
 function deviceDialog() {
-  return `<div class="modal-pad">${dialogHeading('device','魔杖状态','当前为本地演练。网页中的施法、对战和机关反馈均由浏览器模拟。')}
+  return `<div class="modal-pad">${dialogHeading('device','魔杖状态','网页演练进度保存在当前浏览器。两台魔杖通过 ESP-NOW 结算真机对战，结果显示在各自的板载屏幕上。')}
     <dl class="detail-rows"><div><dt>当前模式</dt><dd>本地演练</dd></div><div><dt>StickS3</dt><dd>未连接</dd></div><div><dt>红外收发</dt><dd>未接入</dd></div><div><dt>演练存档</dt><dd>${storageAvailable?'当前浏览器':'仅本次会话'}</dd></div></dl>${actionBtn('close','知道了',null,'btn primary wide')}</div>`;
 }
 function helpDialog() {

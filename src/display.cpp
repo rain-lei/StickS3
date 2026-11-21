@@ -5,6 +5,8 @@
 namespace rift {
 namespace {
 M5Canvas canvas(&M5.Display);
+ui::BoardUi directUi(M5.Display);
+bool buffered=false;
 constexpr uint16_t ink=0x1083, panel=0x18c5, cliff=0x39a9, lilac=0xc55f;
 constexpr uint16_t pale=0xef9f, muted=0xad59, gold=0xff31;
 const uint16_t colors[]={0xfdce,0x75df,0xcd1f,0x8f74};
@@ -28,12 +30,17 @@ void bar(int x,int y,int width,int n,int max,uint16_t color) {
 }
 void initDisplay() {
     M5.Display.setRotation(1);
+    if (M5.Display.width()<M5.Display.height())
+        M5.Display.setRotation((M5.Display.getRotation()+1)%4);
     canvas.setColorDepth(16);
-    canvas.createSprite(240,135);
+    buffered=canvas.createSprite(240,135)!=nullptr;
+    directUi.invalidate();
+    if (!buffered) return;
     canvas.setFont(&fonts::efontCN_12);
     canvas.setTextWrap(false);
 }
 void draw(const View &v,uint32_t now) {
+    if (!buffered) { directUi.show(v.status); return; }
     canvas.fillSprite(ink);
     canvas.fillTriangle(7,10,15,3,13,16,lilac);
     canvas.fillTriangle(13,16,18,7,16,14,0x935d);
@@ -97,10 +104,11 @@ void draw(const View &v,uint32_t now) {
     }
     if (v.charging) {
         int r=21+v.energy/12;
-        canvas.drawCircle(117,63,r,colors[v.skill]);
-        if (v.onBeat) canvas.drawCircle(117,63,r+2,pale);
-        canvas.drawTriangle(117,48,103,72,131,72,colors[v.skill]);
-        bar(88,88,60,v.energy,100,colors[v.skill]);
+        const int x=v.scene==Training ? 178 : 117;
+        canvas.drawCircle(x,63,r,colors[v.skill]);
+        if (v.onBeat) canvas.drawCircle(x,63,r+2,pale);
+        if (v.scene!=Training) canvas.drawTriangle(x,48,x-14,72,x+14,72,colors[v.skill]);
+        bar(x-30,88,60,v.energy,100,colors[v.skill]);
     } else if (v.fxAge<1100) {
         int step=v.fxAge/22;
         if (v.effect==Block || v.effect==Guard) {
@@ -128,9 +136,13 @@ void draw(const View &v,uint32_t now) {
         }
     }
     canvas.fillRect(0,95,240,40,panel);
-    canvas.fillRect(0,97,3,16,*v.notice ? gold : lilac);
-    textAt(8,98,*v.notice ? v.notice : v.action,*v.notice ? gold : 0xffff);
-    textAt(8,117,v.hint,muted);
+    const auto prompt=v.status.prompt();
+    canvas.fillRect(0,97,3,16,v.hasNotice ? gold : lilac);
+    canvas.setFont(&fonts::efontCN_16);
+    if (canvas.textWidth(prompt.title)>224) canvas.setFont(&fonts::efontCN_12);
+    textAt(8,96,prompt.title,v.hasNotice ? gold : 0xffff);
+    canvas.setFont(&fonts::efontCN_12);
+    textAt(8,117,prompt.hint,muted);
     canvas.pushSprite(0,0);
 }
 }
