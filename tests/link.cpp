@@ -38,6 +38,18 @@ int main() {
     exchange();
     assert(guest.battle.effect==Miss && guest.battle.hp[0]==93);
     assert(!guest.takeShieldCue(guestCue) && !host.takeShieldCue(hostCue));
+    // The host can also be the defender. Its lamp waits for the guest to
+    // acknowledge the settled snapshot, even if the physical hit arrived first.
+    for(int i=0;i<25;++i) exchange();
+    host.cast(Ward,0,now);
+    for(int i=0;i<25;++i) exchange();
+    assert(guest.cast(Flame,50,now));
+    exchange();
+    host.report(true,false); host.tick(now);
+    assert(host.battle.effect==Block && !host.takeShieldCue(hostCue));
+    exchange(); exchange();
+    assert(host.takeShieldCue(hostCue) && !host.takeShieldCue(hostCue));
+    assert(!guest.takeShieldCue(guestCue));
     Match stranger;
     stranger.join(Duel,1742,999);
     assert(!host.receive(stranger.message(),now));

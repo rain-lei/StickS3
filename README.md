@@ -9,3 +9,5 @@
 | [首版规格](specs/001-rift/spec.md) | 玩家体验、首版边界、可观察行为 R1–R7 |
 | [技术设计](specs/001-rift/design.md) | 回合状态、双机协议、外设仲裁与存档 |
 | [验收计划](specs/001-rift/acceptance.md) | 每项需求的验证方法、预期结果和设备条件 |
+| [构建与试玩](specs/001-rift/playtest.md) | 编译命令、双机组队、训练、红外机关及格挡灯光联动 |
+| [验证记录](specs/001-rift/verification.md) | 已运行的测试、目标镜像和实机待验项目 |
