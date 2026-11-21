@@ -26,11 +26,16 @@ function startWatch(main) {
     wait.querySelector('h2').textContent=title;
     wait.querySelector('p').textContent=detail;
   }
-  function update({port,state}) {
+  function update({port,state,detected=[],opened=[]}) {
     dot.classList.toggle('offline',!state);
     source.textContent=state ? `USB · ${port}` : '等待 USB 数据';
-    status.lastChild.textContent=state ? ` USB · ${port}` : '设备未连接';
+    status.lastChild.textContent=state ? ` USB · ${port}` : detected.length ? '已发现 USB 设备' : '设备未连接';
     status.firstElementChild.classList.toggle('offline',!state);
+    if (!state && detected.length) {
+      source.textContent=`USB · ${detected.join(' / ')}`;
+      return opened.length ? waiting('等待设备回传战况','已打开串口，正在等待魔杖发送游戏状态。')
+        : waiting('正在打开串口','请关闭占用该串口的串口监视器，观战页会自动重试。');
+    }
     if (!state) return waiting('等待魔杖','请用数据线连接装有实时观战固件的 StickS3。');
     const [,scene,mode,room,me,host,guest,shot]=state;
     if (scene!==5 || mode!==1) {
@@ -82,6 +87,6 @@ function startWatch(main) {
   poll();
   return () => {
     stopped=true; clearTimeout(timer); controller?.abort();
-    status.lastChild.textContent='设备未连接'; status.firstElementChild.classList.add('offline');
+    status.lastChild.textContent='查看 USB 连接'; status.firstElementChild.classList.add('offline');
   };
 }

@@ -20,20 +20,22 @@ class Board:
         self.port.port = name
         self.port.open()
         self.buffer = bytearray()
-        self.requested = self.updated = 0
+        self.requested = 0
+        self.updated = time.monotonic()
         self.frame = None
 
     def update(self, now):
         if now - self.requested >= 1:
-            self.port.write(b"RIFT WATCH\n")
+            self.port.write(b"\nRIFT WATCH\n")
             self.requested = now
         self.buffer.extend(self.port.read(min(self.port.in_waiting, 8192)))
         while b"\n" in self.buffer:
             line, _, self.buffer = self.buffer.partition(b"\n")
-            if not line.startswith(b"RIFT LIVE "):
+            _, marker, data = line.partition(b"RIFT LIVE ")
+            if not marker:
                 continue
             try:
-                frame = json.loads(line[10:])
+                frame = json.loads(data)
             except (ValueError, UnicodeError):
                 continue
             if isinstance(frame, list) and len(frame) == 8 and frame[0] == 1 and all(
@@ -53,6 +55,7 @@ class Workbench(ThreadingHTTPServer):
         super().__init__(address, Handler)
         self.lock = Lock()
         self.boards = {}
+        self.detected = set()
         self.viewed = self.scanned = 0
 
     def service_actions(self):
@@ -65,28 +68,34 @@ class Workbench(ThreadingHTTPServer):
             for board in self.boards.values():
                 board.port.close()
             self.boards.clear()
+            self.detected.clear()
+            self.scanned = 0
             return
         if now - self.scanned > 1:
             self.scanned = now
-            for port in comports():
-                if (port.vid, port.pid) == (0x303A, 0x1001) and port.device not in self.boards:
-                    try:
-                        self.boards[port.device] = Board(port.device)
-                    except (OSError, serial.SerialException):
-                        pass
+            self.detected = {p.device for p in comports() if (p.vid, p.pid) == (0x303A, 0x1001)}
+            for name in self.detected - self.boards.keys():
+                try:
+                    self.boards[name] = Board(name)
+                except (OSError, serial.SerialException):
+                    pass
         for name, board in list(self.boards.items()):
             try:
                 board.update(now)
+                if now - board.updated < 6:
+                    continue
             except (OSError, serial.SerialException):
-                board.port.close()
-                del self.boards[name]
+                pass
+            board.port.close()
+            del self.boards[name]
 
     def snapshot(self):
         with self.lock:
             self.viewed = time.monotonic()
             live = [b for b in self.boards.values() if b.frame and self.viewed - b.updated < 1.4]
             if not live:
-                return {"port": None, "state": None}
+                return {"port": None, "state": None, "detected": sorted(self.detected),
+                        "opened": sorted(self.boards)}
             # Either player has both fighters' data. Prefer the active duel, then host.
             board = max(live, key=lambda b: (b.frame[1:3] == [5, 1], b.frame[1] == 3, b.frame[4] == 0))
             return {"port": board.port.port, "state": board.frame}
