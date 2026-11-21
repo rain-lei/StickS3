@@ -4,6 +4,9 @@
 namespace rift {
 enum Phase : uint8_t { Lobby, Prepare, Aim, Feedback };
 enum Signal : uint8_t { Idle, Cast, Listening, Observed, Leaving };
+constexpr uint32_t opticalWindowMs=1800;
+constexpr uint32_t readyWaitMs=2300;
+constexpr uint32_t reportGraceMs=650;
 
 // Both devices run the same little-endian firmware. Fixed width wire fields only.
 struct Packet {
@@ -59,8 +62,11 @@ struct Match {
         else { skill=s; energy=clamp(power,0,100); signal=Cast; }
         return true;
     }
-    void listening() {
-        if (phase==Aim && !myTurn() && signal==Idle) { signal=Listening; ready=true; }
+    void markReady(uint32_t now) {
+        if (!ready) { ready=true; since=now; }
+    }
+    void listening(uint32_t now) {
+        if (phase==Aim && !myTurn() && signal==Idle) { signal=Listening; markReady(now); }
     }
     void report(bool success,bool guard) {
         if (phase!=Aim || myTurn() || signal==Observed) return;
@@ -86,7 +92,7 @@ struct Match {
                 peerAck=true;
                 if (phase==Prepare && !myTurn() && p.signal==Cast) accept(Skill(p.skill),p.energy,now);
                 else if (phase==Aim && myTurn()) {
-                    if (p.signal==Listening) ready=true;
+                    if (p.signal==Listening) markReady(now);
                     if (p.signal==Observed) settle(p.hit,p.block,now);
                 }
             }
@@ -97,13 +103,14 @@ struct Match {
             skill=Skill(p.skill); energy=p.energy;
             signal=Idle; ready=hit=blocked=false;
         }
-        if (!leader && phase==Aim && p.revision==revision && p.signal==Listening) ready=true;
+        if (!leader && phase==Aim && p.revision==revision && p.signal==Listening) markReady(now);
         return true;
     }
     void tick(uint32_t now) {
         if (!leader) return;
         if (phase==Aim && !myTurn() && signal==Observed) settle(hit,blocked,now);
-        else if (phase==Aim && now-since>=2300) settle(false,false,now);
+        else if (phase==Aim && now-since>=(ready ? opticalWindowMs+reportGraceMs : readyWaitMs))
+            settle(false,false,now);
         else if (phase==Feedback && !battle.finished() && peerAck && now-since>=1750)
             advance(Prepare,now);
     }

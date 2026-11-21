@@ -49,12 +49,12 @@ void Peripherals::stopListening() {
     receiving=false;
 }
 
-bool Peripherals::readIR(uint32_t &word) {
-    if (!receiving) return false;
+IRRead Peripherals::readIR(uint32_t &word) {
+    if (!receiving) return IRRead::Empty;
     size_t size=0;
     auto items=static_cast<rmt_item32_t*>(xRingbufferReceive(ring,&size,0));
-    if (!items) return false;
-    Pulse frame[34]={};
+    if (!items) return IRRead::Empty;
+    Pulse frame[SOC_RMT_MEM_WORDS_PER_CHANNEL]={};
     size_t marks=0;
     bool malformed=false;
     for (size_t i=0;i<size/sizeof(*items);++i) {
@@ -63,14 +63,14 @@ bool Peripherals::readIR(uint32_t &word) {
             auto us=half ? items[i].duration1 : items[i].duration0;
             if (!us) continue;
             if (!level) {
-                if (marks==34 || (marks && !frame[marks-1].space)) { malformed=true; break; }
+                if (marks==sizeof(frame)/sizeof(frame[0]) || (marks && !frame[marks-1].space)) { malformed=true; break; }
                 frame[marks++].mark=us;
             } else if (marks) frame[marks-1].space=us;
         }
         if (malformed) break;
     }
     vRingbufferReturnItem(ring,items);
-    return !malformed && readFrame(frame,marks,word);
+    return !malformed && readCapture(frame,marks,word) ? IRRead::Decoded : IRRead::Malformed;
 }
 bool Peripherals::sendIR(uint32_t word) {
     if (!infrared || receiving) return false;

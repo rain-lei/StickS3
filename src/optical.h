@@ -19,17 +19,31 @@ inline void makeFrame(uint32_t word, Pulse *out) {
     out[33]={560,0};
 }
 inline bool nearPulse(int actual, int ideal) { return actual>=ideal*65/100 && actual<=ideal*135/100; }
+inline bool bitMark(int us) { return us>=300 && us<=800; }
 inline bool readFrame(const Pulse *in, size_t n, uint32_t &word) {
     if (n!=34 || !nearPulse(in[0].mark,9000) || !nearPulse(in[0].space,4500)
-        || !nearPulse(in[33].mark,560)) return false;
+        || !bitMark(in[33].mark)) return false;
     uint32_t value=0;
     for (unsigned i=0;i<32;++i) {
-        if (!nearPulse(in[i+1].mark,560)) return false;
-        if (nearPulse(in[i+1].space,1690)) value |= 1u<<i;
-        else if (!nearPulse(in[i+1].space,560)) return false;
+        const Pulse &bit=in[i+1];
+        if (!bitMark(bit.mark) || bit.space<250) return false;
+        // Demodulation can extend the mark into its space. Leading-edge
+        // spacing still distinguishes a zero (~1120 us) from a one (~2250 us).
+        int period=bit.mark+bit.space;
+        bool nominalMark=nearPulse(bit.mark,560);
+        if ((nominalMark && nearPulse(bit.space,1690)) || (period>=1780 && period<=2700))
+            value |= 1u<<i;
+        else if (!(nominalMark && nearPulse(bit.space,560)) && (period<850 || period>1450))
+            return false;
     }
     word=value;
     return true;
+}
+inline bool readCapture(const Pulse *in,size_t count,uint32_t &word) {
+    for (size_t start=0; start+34<=count; ++start) {
+        if (readFrame(in+start,34,word)) return true;
+    }
+    return false;
 }
 }
 

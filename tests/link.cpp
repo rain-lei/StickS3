@@ -73,6 +73,19 @@ int main() {
     exchange(); host.cast(Flame,100,now);
     now+=2400; host.tick(now);
     assert(host.battle.effect==Miss && host.battle.hp[1]==100);
+    // A delayed READY gives the receiver time for a complete optical window.
+    host.host(Duel,51); guest.join(Duel,51,23); exchange();
+    host.cast(Frost,50,now);
+    now+=1900; guest.receive(host.message(),now); guest.listening(now);
+    host.receive(guest.message(),now); now+=1000; host.tick(now);
+    assert(host.phase==Aim);
+    guest.report(true,false); host.receive(guest.message(),now);
+    assert(host.phase==Feedback && host.battle.effect==Freeze);
+    host.host(Duel,52); guest.join(Duel,52,24); exchange();
+    host.cast(Frost,50,now); guest.receive(host.message(),now); guest.listening(now);
+    host.receive(guest.message(),now); now+=3000;
+    host.receive(guest.message(),now); host.tick(now);
+    assert(host.battle.effect==Miss && host.battle.hp[1]==100);
     auto invalid=guest.message(); invalid.energy=101;
     assert(!host.receive(invalid,now));
     invalid=guest.message(); invalid.room=75;

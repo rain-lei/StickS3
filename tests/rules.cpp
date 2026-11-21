@@ -69,6 +69,16 @@ int main() {
     assert(readFrame(pulses,34,decoded) && remoteCode(decoded) && decoded==extended);
     makeFrame(token(9,3),pulses);
     assert(readFrame(pulses,34,decoded) && decoded!=token(9,4) && !remoteCode(decoded));
+    Pulse captured[36]={{90,180},{120,600}};
+    makeFrame(token(9,3),captured+2);
+    for (int i=3;i<35;++i) {
+        captured[i].mark+=210;
+        captured[i].space-=210;
+    }
+    assert(readCapture(captured,36,decoded) && decoded==token(9,3));
+    assert(!readCapture(captured,35,decoded));
+    captured[9].space=3100;
+    assert(!readCapture(captured,36,decoded));
     Pet dragon;
     for(int i=0;i<4;++i) dragon.train(Frost);
     assert(dragon.trained(Frost) && dragon.practice[Frost]==3 && !dragon.trained(Ward));

@@ -4,12 +4,13 @@
 
 namespace rift {
 enum Tune { Chirp, FireTone, IceTone, ShieldTone, HealTone, HurtTone, VictoryTone, BattleTone };
+enum class IRRead { Empty, Malformed, Decoded };
 class Peripherals {
 public:
     bool initIR();
     bool listen();
     void stopListening();
-    bool readIR(uint32_t &word);
+    IRRead readIR(uint32_t &word);
     bool sendIR(uint32_t word);
     void startVoice();
     void updateVoice(Voice &v);

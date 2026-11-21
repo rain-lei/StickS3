@@ -40,6 +40,7 @@ Effect fx=Waiting;
 bool casting=false, sleepPet=false, rewarded=false, won=false, sideHeld=false;
 bool receiving=false, shotSent=false, guardSet=false, hasFx=false, boardOK=false, storeOK=false;
 const char *notice="";
+const char *missHint="未确认红外接收窗口";
 void tell(const char *s,unsigned duration=1300) { notice=s; noteAt=now; noteLife=duration; }
 void savePet() {
     if (pet.level()>lastLevel) { lastLevel=pet.level(); evolutionAt=now; }
@@ -101,6 +102,7 @@ void cycleRoom() {
 }
 void onTransition() {
     stopCast(); stopRX(); shotSent=false; lastShot=0;
+    if (match.phase==Prepare || match.phase==Aim) missHint="未确认红外接收窗口";
     if (match.phase==Feedback) {
         effect(match.battle.effect);
         finish(match.battle, match.leader ? 0 : 1);
@@ -136,17 +138,30 @@ void serviceRoom() {
         uint32_t code=token(match.room,match.battle.turn);
         if (!match.myTurn() && match.signal!=Observed) {
             if (!receiving) {
-                receiving=device.listen(); irStarted=now;
+                receiving=device.listen();
+                now=millis(); irStarted=now;
+                missHint=receiving ? "未收到红外，请正对红外窗" : "接收器启动失败";
                 if (!receiving) { match.report(false,false); tell("红外启动失败"); }
             }
-            if (receiving && now-irStarted>=35) match.listening();
-            uint32_t got;
-            if (receiving && device.readIR(got) && got==code)
-                match.report(true,guardSet && now-guardAt<1050);
-            else if (receiving && now-irStarted>=1300) match.report(false,false);
+            if (receiving && now-irStarted>=35) match.listening(now);
+            // Drain queued captures before declaring a timeout. Noise and a
+            // complete retry can both arrive between two display refreshes.
+            uint32_t got=0;
+            while (receiving) {
+                IRRead status=device.readIR(got);
+                if (status==IRRead::Empty) break;
+                if (status==IRRead::Decoded && got==code) {
+                    missHint="红外已匹配，请检查无线连接";
+                    match.report(true,guardSet && now-guardAt<1050);
+                    break;
+                }
+                missHint=status==IRRead::Malformed ? "收到波形，未解出完整帧" : "收到其他红外码";
+            }
+            if (receiving && match.signal==Listening && now-match.since>=opticalWindowMs)
+                match.report(false,false);
             if (match.signal==Observed) stopRX();
-        } else if (match.myTurn() && match.ready && (!shotSent || now-lastShot>=240)) {
-            device.quiet();
+        } else if (match.myTurn() && match.ready && (!shotSent || now-lastShot>=160)) {
+            if (!shotSent) device.quiet();
             if (!device.sendIR(code)) tell("红外发射失败");
             shotSent=true; lastShot=now;
         }
@@ -223,7 +238,7 @@ void startRune() {
 }
 void serviceRune() {
     uint32_t code;
-    if (device.readIR(code) && remoteCode(code)) {
+    if (device.readIR(code)==IRRead::Decoded && remoteCode(code)) {
         if (scene==Learn) {
             bool saved=storeOK && storage.putUInt(slotKeys[slot],code)==sizeof(code);
             if (saved) {
@@ -342,11 +357,14 @@ void render() {
                     v.hint="A 继续   长 B 回巢"; break;
                 }
                 if (online && match.phase==Aim) {
-                    v.action=match.myTurn() ? "对准对方魔杖" : "静默判定 · 翻腕格挡";
-                    v.hint="等待红外与无线结算"; break;
+                    v.action=match.myTurn() ? (shotSent ? "红外发射中" : "准备瞄准") : "静默判定 · 翻腕格挡";
+                    v.hint="红外窗正对，保持到结算"; break;
                 }
                 if ((online && match.phase==Feedback) || (!online && hasFx && now-lastFx<1400)) {
-                    v.action=effects[b.effect]; v.hint="结算中"; break;
+                    v.action=effects[b.effect]; v.hint="结算中";
+                    if (online && b.effect==Miss)
+                        v.hint=match.myTurn() ? missHint : "请查看守方的接收提示";
+                    break;
                 }
                 if (online && !match.myTurn()) {
                     v.action=b.mode==Duel ? "对手行动中" : "队友行动中";
